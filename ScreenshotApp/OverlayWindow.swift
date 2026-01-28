@@ -80,6 +80,7 @@ enum DrawingTool {
     case text
     case eraser
     case eyedropper
+    case ai
 }
 
 enum ColorTarget {
@@ -105,10 +106,20 @@ struct DrawingElement {
     let fontName: String
 }
 
+enum ToolbarGroupPosition {
+    case single
+    case first
+    case middle
+    case last
+}
+
 final class ToolbarButton: NSButton {
     var baseColor = NSColor(calibratedRed: 0.16, green: 0.19, blue: 0.26, alpha: 1.0)
     var accentColor: NSColor?
     var isActiveAppearance = false {
+        didSet { needsDisplay = true }
+    }
+    var groupPosition: ToolbarGroupPosition = .single {
         didSet { needsDisplay = true }
     }
 
@@ -134,15 +145,32 @@ final class ToolbarButton: NSButton {
         gradientLayer.colors = [top.cgColor, bottom.cgColor]
         gradientLayer.startPoint = CGPoint(x: 0.5, y: 1.0)
         gradientLayer.endPoint = CGPoint(x: 0.5, y: 0.0)
-        gradientLayer.cornerRadius = 6
 
-        layer.cornerRadius = 6
+        applyGroupCorners(to: gradientLayer)
+        applyGroupCorners(to: layer)
         layer.borderWidth = 1
         layer.borderColor = NSColor(calibratedWhite: 1.0, alpha: 0.10).cgColor
         layer.shadowColor = NSColor.black.cgColor
         layer.shadowOpacity = 0.35
         layer.shadowRadius = 6
         layer.shadowOffset = CGSize(width: 0, height: -1)
+    }
+
+    private func applyGroupCorners(to layer: CALayer) {
+        let radius: CGFloat = 6
+        switch groupPosition {
+        case .single:
+            layer.cornerRadius = radius
+            layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+        case .first:
+            layer.cornerRadius = radius
+            layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+        case .middle:
+            layer.cornerRadius = 0
+        case .last:
+            layer.cornerRadius = radius
+            layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+        }
     }
 
     override func layout() {
@@ -155,6 +183,9 @@ final class ColorSwatchButton: NSButton {
     var swatchColor: NSColor = .red {
         didSet { needsDisplay = true }
     }
+    var groupPosition: ToolbarGroupPosition = .single {
+        didSet { needsDisplay = true }
+    }
 
     override var isHighlighted: Bool {
         didSet { alphaValue = isHighlighted ? 0.8 : 1.0 }
@@ -163,7 +194,7 @@ final class ColorSwatchButton: NSButton {
     override func updateLayer() {
         wantsLayer = true
         guard let layer = layer else { return }
-        layer.cornerRadius = 6
+        applyGroupCorners(to: layer)
         layer.backgroundColor = swatchColor.cgColor
         layer.borderWidth = 1
         layer.borderColor = NSColor(calibratedWhite: 1.0, alpha: 0.18).cgColor
@@ -171,6 +202,23 @@ final class ColorSwatchButton: NSButton {
         layer.shadowOpacity = 0.3
         layer.shadowRadius = 4
         layer.shadowOffset = CGSize(width: 0, height: -1)
+    }
+
+    private func applyGroupCorners(to layer: CALayer) {
+        let radius: CGFloat = 6
+        switch groupPosition {
+        case .single:
+            layer.cornerRadius = radius
+            layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+        case .first:
+            layer.cornerRadius = radius
+            layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+        case .middle:
+            layer.cornerRadius = 0
+        case .last:
+            layer.cornerRadius = radius
+            layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+        }
     }
 }
 
@@ -226,6 +274,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
     private let actionButtonWidth: CGFloat = 28
     private let toolbarPadding: CGFloat = 10
     private let buttonSpacing: CGFloat = 8
+    private let intraGroupSpacing: CGFloat = 0
     private let separatorWidth: CGFloat = 1
     private let fontChoices: [(label: String, name: String)] = [
         ("System", NSFont.systemFont(ofSize: 16).fontName),
@@ -233,6 +282,15 @@ class SelectionView: NSView, NSTextFieldDelegate {
         ("Helvetica Neue", "Helvetica Neue"),
         ("Avenir Next", "Avenir Next")
     ]
+
+    private var isDrawingTool: Bool {
+        switch currentTool {
+        case .pen, .line, .arrow, .rectangle, .circle:
+            return true
+        default:
+            return false
+        }
+    }
     
     
     init(frame: NSRect, screenImage: CGImage, overlayId: UUID) {
@@ -295,7 +353,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
             }
             
             // Draw control points
-            if currentTool == .none || currentTool == .move {
+            if currentTool == .move {
                 drawControlPoints(for: rect, in: context)
             }
             drawSizeLabel(for: rect, in: context)
@@ -526,6 +584,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
             break
         case .none:
             break
+        case .ai:
+            break
         }
     }
     
@@ -633,15 +693,20 @@ class SelectionView: NSView, NSTextFieldDelegate {
         // Action buttons (left)
         let contentWidth = toolbarContentWidth()
         var xOffset = toolbarGroupStartX(toolbarWidth: toolbarFrame.width, contentWidth: contentWidth)
-        let copyButton = createActionButton(icon: "doc.on.doc", x: xOffset, y: 4, action: #selector(copyToClipboard))
-        xOffset += actionButtonWidth + buttonSpacing
-        let saveButton = createActionButton(icon: "square.and.arrow.down", x: xOffset, y: 4, action: #selector(saveImage))
-        xOffset += actionButtonWidth + buttonSpacing
-        let closeButton = createActionButton(icon: "xmark.circle.fill", x: xOffset, y: 4, action: #selector(closeOverlay))
-        xOffset += actionButtonWidth + buttonSpacing
-        
-        actionButtons = [copyButton, saveButton, closeButton]
-        actionButtons.forEach { toolbar.addSubview($0) }
+        let actionIcons = ["doc.on.doc", "square.and.arrow.down", "xmark.circle.fill"]
+        let actionSelectors: [Selector] = [#selector(copyToClipboard), #selector(saveImage), #selector(closeOverlay)]
+        actionButtons = []
+        for (index, icon) in actionIcons.enumerated() {
+            let button = createActionButton(icon: icon, x: xOffset, y: 4, action: actionSelectors[index])
+            button.groupPosition = groupPosition(for: index, count: actionIcons.count)
+            actionButtons.append(button)
+            toolbar.addSubview(button)
+            xOffset += actionButtonWidth
+            if index < actionIcons.count - 1 {
+                xOffset += intraGroupSpacing
+            }
+        }
+        xOffset += buttonSpacing
         
         let actionToolSeparator = createSeparator(height: 20)
         actionToolSeparator.frame.origin = NSPoint(x: xOffset, y: 8)
@@ -651,7 +716,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
 
         // Tool buttons (right)
         let tools: [(String, DrawingTool)] = [
-            ("arrow.up.left.and.down.right", .move),
+            ("arrow.up.and.down.and.arrow.left.and.right", .move),
             ("cursorarrow", .none),
             ("pencil", .pen),
             ("line.diagonal", .line),
@@ -660,16 +725,21 @@ class SelectionView: NSView, NSTextFieldDelegate {
             ("circle", .circle),
             ("textformat", .text),
             ("eraser", .eraser),
-            ("eyedropper", .eyedropper)
+            ("sparkles", .ai)
         ]
         
         toolButtonTypes = tools.map { $0.1 }
-        for (icon, tool) in tools {
+        for (index, (icon, tool)) in tools.enumerated() {
             let button = createToolButton(icon: icon, tool: tool, x: xOffset, y: 4)
+            button.groupPosition = groupPosition(for: index, count: tools.count)
             toolButtons.append(button)
             toolbar.addSubview(button)
-            xOffset += toolButtonWidth + buttonSpacing
+            xOffset += toolButtonWidth
+            if index < tools.count - 1 {
+                xOffset += intraGroupSpacing
+            }
         }
+        xOffset += buttonSpacing
         
         let toolColorSeparator = createSeparator(height: 20)
         toolColorSeparator.frame.origin = NSPoint(x: xOffset, y: 8)
@@ -684,9 +754,11 @@ class SelectionView: NSView, NSTextFieldDelegate {
         strokeButton.swatchColor = currentStrokeColor
         strokeButton.target = self
         strokeButton.action = #selector(openStrokeColorPicker)
+        strokeButton.addSubview(makeSwatchLabel(text: "F"))
+        strokeButton.groupPosition = .first
         strokeColorButton = strokeButton
         toolbar.addSubview(strokeButton)
-        xOffset += toolButtonWidth + buttonSpacing
+        xOffset += toolButtonWidth + intraGroupSpacing
 
         let fillButton = ColorSwatchButton(frame: NSRect(x: xOffset, y: 4, width: toolButtonWidth, height: 28))
         fillButton.title = ""
@@ -695,22 +767,26 @@ class SelectionView: NSView, NSTextFieldDelegate {
         fillButton.swatchColor = currentFillColor ?? .clear
         fillButton.target = self
         fillButton.action = #selector(openFillColorPicker)
+        fillButton.addSubview(makeSwatchLabel(text: "B"))
+        fillButton.groupPosition = .middle
         fillColorButton = fillButton
         toolbar.addSubview(fillButton)
-        xOffset += toolButtonWidth + buttonSpacing
+        xOffset += toolButtonWidth + intraGroupSpacing
 
         let widthButton = createIconButton(icon: "lineweight", x: xOffset, y: 4)
         widthButton.target = self
         widthButton.action = #selector(toggleLineWidthPicker)
         widthButton.isActiveAppearance = false
+        widthButton.groupPosition = .middle
         lineWidthButton = widthButton
         toolbar.addSubview(widthButton)
-        xOffset += toolButtonWidth + buttonSpacing
+        xOffset += toolButtonWidth + intraGroupSpacing
 
         let fontButton = createIconButton(icon: "textformat.size", x: xOffset, y: 4)
         fontButton.target = self
         fontButton.action = #selector(toggleFontPicker)
         fontButton.isActiveAppearance = false
+        fontButton.groupPosition = .last
         fontSettingsButton = fontButton
         toolbar.addSubview(fontButton)
     }
@@ -997,9 +1073,19 @@ class SelectionView: NSView, NSTextFieldDelegate {
 
     override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
+
+        if let toolbar = toolbarView, toolbar.frame.contains(location) {
+            let localPoint = toolbar.convert(location, from: self)
+            let hitView = toolbar.hitTest(localPoint)
+            if let control = hitView as? NSControl, control.isEnabled {
+                // Let controls handle the event.
+            } else {
+                return
+            }
+        }
         
         // Check if clicking on control points for resizing
-        if (currentTool == .none || currentTool == .move), let _ = selectedRect {
+        if currentTool == .move, let _ = selectedRect {
             for (index, controlPoint) in controlPoints.enumerated() {
                 if controlPoint.contains(location) {
                     mode = .resizing
@@ -1023,13 +1109,15 @@ class SelectionView: NSView, NSTextFieldDelegate {
                 if let picked = colorAtViewPoint(location) {
                     currentStrokeColor = picked
                     strokeColorButton?.swatchColor = picked
+                    currentFillColor = picked
+                    fillColorButton?.swatchColor = picked
                 }
                 currentTool = .none
                 updateToolButtonStates()
                 needsDisplay = true
                 return
             }
-            if currentTool == .none || currentTool == .move {
+            if currentTool == .none {
                 if let index = drawingElements.lastIndex(where: { elementHitTest($0, point: location, tolerance: 6) }) {
                     selectedElementIndex = index
                     mode = .elementDragging
@@ -1039,14 +1127,17 @@ class SelectionView: NSView, NSTextFieldDelegate {
                     return
                 }
                 selectedElementIndex = nil
+                needsDisplay = true
+                return
             }
-            if currentTool != .none && currentTool != .move {
+            if isDrawingTool {
                 // Start drawing
                 mode = .drawing
                 drawingStartPoint = location
                 currentDrawingPoints = [location]
-            } else {
+            } else if currentTool == .move {
                 // Start dragging
+                selectedElementIndex = nil
                 mode = .dragging
                 dragOffset = NSPoint(x: location.x - rect.origin.x, y: location.y - rect.origin.y)
                 NSCursor.closedHand.set()
@@ -1139,9 +1230,11 @@ class SelectionView: NSView, NSTextFieldDelegate {
             if clampedRect.width > 10 && clampedRect.height > 10 {
                 selectedRect = clampedRect
                 mode = .selected
+                currentTool = .move
                 updateControlPoints()
                 setupToolbar(for: clampedRect)
                 notifySelectionChanged()
+                updateToolButtonStates()
             } else {
                 startPoint = nil
                 currentPoint = nil
@@ -1211,6 +1304,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
             return
         case .none:
             return
+        case .ai:
+            return
         }
         
         drawingElements.append(element)
@@ -1279,30 +1374,38 @@ class SelectionView: NSView, NSTextFieldDelegate {
         let contentWidth = toolbarContentWidth()
         var xOffset = toolbarGroupStartX(toolbarWidth: toolbarFrame.width, contentWidth: contentWidth)
         if actionButtons.count >= 3 {
-            actionButtons[0].frame.origin = NSPoint(x: xOffset, y: 4)
-            actionButtons[1].frame.origin = NSPoint(x: xOffset + actionButtonWidth + buttonSpacing, y: 4)
-            actionButtons[2].frame.origin = NSPoint(x: xOffset + (actionButtonWidth + buttonSpacing) * 2, y: 4)
+            for (index, button) in actionButtons.enumerated() {
+                button.frame.origin = NSPoint(x: xOffset, y: 4)
+                xOffset += actionButtonWidth
+                if index < actionButtons.count - 1 {
+                    xOffset += intraGroupSpacing
+                }
+            }
         }
-        xOffset += (actionButtonWidth + buttonSpacing) * 3
+        xOffset += buttonSpacing
         if separatorViews.count >= 1 {
             separatorViews[0].frame.origin = NSPoint(x: xOffset, y: 8)
         }
         xOffset += separatorWidth + buttonSpacing
 
-        for button in toolButtons {
+        for (index, button) in toolButtons.enumerated() {
             button.frame.origin = NSPoint(x: xOffset, y: 4)
-            xOffset += toolButtonWidth + buttonSpacing
+            xOffset += toolButtonWidth
+            if index < toolButtons.count - 1 {
+                xOffset += intraGroupSpacing
+            }
         }
+        xOffset += buttonSpacing
         if separatorViews.count >= 2 {
             separatorViews[1].frame.origin = NSPoint(x: xOffset, y: 8)
         }
         xOffset += separatorWidth + buttonSpacing
         strokeColorButton?.frame.origin = NSPoint(x: xOffset, y: 4)
-        xOffset += toolButtonWidth + buttonSpacing
+        xOffset += toolButtonWidth + intraGroupSpacing
         fillColorButton?.frame.origin = NSPoint(x: xOffset, y: 4)
-        xOffset += toolButtonWidth + buttonSpacing
+        xOffset += toolButtonWidth + intraGroupSpacing
         lineWidthButton?.frame.origin = NSPoint(x: xOffset, y: 4)
-        xOffset += toolButtonWidth + buttonSpacing
+        xOffset += toolButtonWidth + intraGroupSpacing
         fontSettingsButton?.frame.origin = NSPoint(x: xOffset, y: 4)
         updateColorPickerPosition()
         updateLineWidthPickerPosition()
@@ -1358,9 +1461,14 @@ class SelectionView: NSView, NSTextFieldDelegate {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        guard currentTool == .none || currentTool == .move else { return }
         if let rect = selectedRect {
-            addCursorRect(rect, cursor: .openHand)
+            if isDrawingTool {
+                addCursorRect(rect, cursor: .crosshair)
+                return
+            }
+            if currentTool == .move {
+                addCursorRect(rect, cursor: .openHand)
+            }
         }
         for (index, rect) in controlPoints.enumerated() {
             let cursor: NSCursor
@@ -1396,7 +1504,11 @@ class SelectionView: NSView, NSTextFieldDelegate {
             hoverEraserIndex = nil
             needsDisplay = true
         }
-        if currentTool == .none, let rect = selectedRect, rect.contains(location), mode != .dragging, mode != .elementDragging {
+        if isDrawingTool, let rect = selectedRect, rect.contains(location),
+           mode != .dragging, mode != .resizing, mode != .elementDragging {
+            NSCursor.crosshair.set()
+        }
+        if currentTool == .move, let rect = selectedRect, rect.contains(location), mode != .dragging, mode != .elementDragging {
             NSCursor.openHand.set()
         }
         super.mouseMoved(with: event)
@@ -1437,12 +1549,16 @@ class SelectionView: NSView, NSTextFieldDelegate {
     private func toolbarContentWidth() -> CGFloat {
         let toolCount = 10
         let colorCount = 4
-        let actionWidth = actionButtonWidth * 3
+        let actionCount = 3
+        let actionWidth = actionButtonWidth * CGFloat(actionCount)
         let toolWidth = toolButtonWidth * CGFloat(toolCount)
         let colorWidth = toolButtonWidth * CGFloat(colorCount)
         let separatorsWidth = separatorWidth * 2
-        let spacingCount = 3 + toolCount + colorCount + 2
-        return actionWidth + toolWidth + colorWidth + separatorsWidth + buttonSpacing * CGFloat(spacingCount)
+        let intraSpacingCount = max(0, actionCount - 1) + max(0, toolCount - 1) + max(0, colorCount - 1)
+        let groupSpacingCount = 4
+        return actionWidth + toolWidth + colorWidth + separatorsWidth
+            + intraGroupSpacing * CGFloat(intraSpacingCount)
+            + buttonSpacing * CGFloat(groupSpacingCount)
     }
 
     private func toolbarGroupStartX(toolbarWidth: CGFloat, contentWidth: CGFloat) -> CGFloat {
@@ -1454,6 +1570,25 @@ class SelectionView: NSView, NSTextFieldDelegate {
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor(calibratedWhite: 1.0, alpha: 0.12).cgColor
         return view
+    }
+
+    private func makeSwatchLabel(text: String) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = NSFont.systemFont(ofSize: 9, weight: .bold)
+        label.textColor = NSColor.white.withAlphaComponent(0.9)
+        label.alignment = .center
+        label.backgroundColor = .clear
+        label.isBordered = false
+        label.sizeToFit()
+        label.frame = NSRect(x: 4, y: 4, width: 12, height: 12)
+        return label
+    }
+
+    private func groupPosition(for index: Int, count: Int) -> ToolbarGroupPosition {
+        if count <= 1 { return .single }
+        if index == 0 { return .first }
+        if index == count - 1 { return .last }
+        return .middle
     }
 
     private func clampedPoint(_ point: NSPoint) -> NSPoint {
