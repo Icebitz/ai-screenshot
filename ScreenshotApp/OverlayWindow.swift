@@ -71,6 +71,7 @@ enum SelectionMode {
 
 enum DrawingTool {
     case none
+    case move
     case pen
     case line
     case arrow
@@ -191,7 +192,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
     var lastDragPoint: NSPoint?
     
     // Drawing
-    var currentTool: DrawingTool = .none
+    var currentTool: DrawingTool = .move
     var currentStrokeColor: NSColor = .red
     var currentFillColor: NSColor? = nil
     var currentLineWidth: CGFloat = 3.0
@@ -294,7 +295,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
             }
             
             // Draw control points
-            if currentTool == .none {
+            if currentTool == .none || currentTool == .move {
                 drawControlPoints(for: rect, in: context)
             }
             drawSizeLabel(for: rect, in: context)
@@ -521,6 +522,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
             break
         case .eyedropper:
             break
+        case .move:
+            break
         case .none:
             break
         }
@@ -648,6 +651,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
 
         // Tool buttons (right)
         let tools: [(String, DrawingTool)] = [
+            ("arrow.up.left.and.down.right", .move),
             ("cursorarrow", .none),
             ("pencil", .pen),
             ("line.diagonal", .line),
@@ -695,7 +699,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         toolbar.addSubview(fillButton)
         xOffset += toolButtonWidth + buttonSpacing
 
-        let widthButton = createIconButton(icon: "line.3.horizontal.decrease.circle", x: xOffset, y: 4)
+        let widthButton = createIconButton(icon: "lineweight", x: xOffset, y: 4)
         widthButton.target = self
         widthButton.action = #selector(toggleLineWidthPicker)
         widthButton.isActiveAppearance = false
@@ -848,6 +852,13 @@ class SelectionView: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
+    @objc private func activateEyedropperFromPicker() {
+        currentTool = .eyedropper
+        updateToolButtonStates()
+        hideColorPicker()
+        needsDisplay = true
+    }
+
     private func renderFinalImage(for rect: NSRect) -> CGImage {
         let imageRect = imageRectForViewRect(rect)
         let width = Int(imageRect.width)
@@ -988,7 +999,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         let location = convert(event.locationInWindow, from: nil)
         
         // Check if clicking on control points for resizing
-        if currentTool == .none, let _ = selectedRect {
+        if (currentTool == .none || currentTool == .move), let _ = selectedRect {
             for (index, controlPoint) in controlPoints.enumerated() {
                 if controlPoint.contains(location) {
                     mode = .resizing
@@ -1018,7 +1029,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
                 needsDisplay = true
                 return
             }
-            if currentTool == .none {
+            if currentTool == .none || currentTool == .move {
                 if let index = drawingElements.lastIndex(where: { elementHitTest($0, point: location, tolerance: 6) }) {
                     selectedElementIndex = index
                     mode = .elementDragging
@@ -1029,7 +1040,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
                 }
                 selectedElementIndex = nil
             }
-            if currentTool != .none {
+            if currentTool != .none && currentTool != .move {
                 // Start drawing
                 mode = .drawing
                 drawingStartPoint = location
@@ -1196,6 +1207,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
             return
         case .eyedropper:
             return
+        case .move:
+            return
         case .none:
             return
         }
@@ -1345,7 +1358,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        guard currentTool == .none else { return }
+        guard currentTool == .none || currentTool == .move else { return }
         if let rect = selectedRect {
             addCursorRect(rect, cursor: .openHand)
         }
@@ -1422,7 +1435,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
     }
 
     private func toolbarContentWidth() -> CGFloat {
-        let toolCount = 9
+        let toolCount = 10
         let colorCount = 4
         let actionWidth = actionButtonWidth * 3
         let toolWidth = toolButtonWidth * CGFloat(toolCount)
@@ -1670,7 +1683,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
             .systemGreen, .systemTeal, .systemBlue, .systemIndigo, .systemPurple, .systemPink,
             .systemBrown, .systemGray, .lightGray, .darkGray, .cyan, .magenta
         ]
-        let rows = Int(ceil(Double(colors.count) / Double(columns)))
+        let totalItems = colors.count + 1
+        let rows = Int(ceil(Double(totalItems) / Double(columns)))
         let pickerWidth = padding * 2 + CGFloat(columns) * swatchSize + CGFloat(columns - 1) * 6
         let pickerHeight = padding * 2 + CGFloat(rows) * swatchSize + CGFloat(rows - 1) * 6
 
@@ -1694,11 +1708,16 @@ class SelectionView: NSView, NSTextFieldDelegate {
         var index = 0
         for row in 0..<rows {
             for col in 0..<columns {
-                guard index < colors.count else { break }
+                guard index < totalItems else { break }
                 let x = padding + CGFloat(col) * (swatchSize + 6)
                 let y = padding + CGFloat(rows - 1 - row) * (swatchSize + 6)
-                let swatch = createColorSwatch(color: colors[index], frame: NSRect(x: x, y: y, width: swatchSize, height: swatchSize))
-                picker.addSubview(swatch)
+                if index == colors.count {
+                    let eyedropper = createEyedropperSwatch(frame: NSRect(x: x, y: y, width: swatchSize, height: swatchSize))
+                    picker.addSubview(eyedropper)
+                } else {
+                    let swatch = createColorSwatch(color: colors[index], frame: NSRect(x: x, y: y, width: swatchSize, height: swatchSize))
+                    picker.addSubview(swatch)
+                }
                 index += 1
             }
         }
@@ -1950,6 +1969,23 @@ class SelectionView: NSView, NSTextFieldDelegate {
         return button
     }
 
+    private func createEyedropperSwatch(frame: NSRect) -> NSButton {
+        let button = NSButton(frame: frame)
+        button.wantsLayer = true
+        button.layer?.cornerRadius = 4
+        button.layer?.backgroundColor = NSColor(calibratedWhite: 0.15, alpha: 0.95).cgColor
+        button.layer?.borderWidth = 1
+        button.layer?.borderColor = NSColor(calibratedWhite: 1.0, alpha: 0.15).cgColor
+        button.isBordered = false
+        button.title = ""
+        button.image = NSImage(systemSymbolName: "eyedropper", accessibilityDescription: nil)
+        button.imagePosition = .imageOnly
+        button.contentTintColor = .white
+        button.target = self
+        button.action = #selector(activateEyedropperFromPicker)
+        return button
+    }
+
     private func startTextEntry(at point: NSPoint) {
         activeTextField?.removeFromSuperview()
         activeTextField = nil
@@ -1963,6 +1999,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         field.isBezeled = false
         field.drawsBackground = false
         field.focusRingType = .none
+        field.placeholderString = "Text"
         field.textColor = currentStrokeColor
         field.font = font
         addSubview(field)
