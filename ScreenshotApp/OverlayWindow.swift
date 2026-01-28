@@ -140,6 +140,29 @@ final class ToolbarButton: NSButton {
     }
 }
 
+final class ColorSwatchButton: NSButton {
+    var swatchColor: NSColor = .red {
+        didSet { needsDisplay = true }
+    }
+
+    override var isHighlighted: Bool {
+        didSet { alphaValue = isHighlighted ? 0.8 : 1.0 }
+    }
+
+    override func updateLayer() {
+        wantsLayer = true
+        guard let layer = layer else { return }
+        layer.cornerRadius = 6
+        layer.backgroundColor = swatchColor.cgColor
+        layer.borderWidth = 1
+        layer.borderColor = NSColor(calibratedWhite: 1.0, alpha: 0.18).cgColor
+        layer.shadowColor = NSColor.black.cgColor
+        layer.shadowOpacity = 0.3
+        layer.shadowRadius = 4
+        layer.shadowOffset = CGSize(width: 0, height: -1)
+    }
+}
+
 class SelectionView: NSView, NSTextFieldDelegate {
     let screenImage: CGImage
     let overlayId: UUID
@@ -173,7 +196,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
     var actionButtons: [NSButton] = []
     var toolbarView: NSVisualEffectView?
     var separatorViews: [NSView] = []
-    var colorButton: NSButton?
+    var colorButton: ToolbarButton?
+    var colorIndicator: ColorSwatchButton?
     var colorPickerView: NSView?
 
     private let toolButtonWidth: CGFloat = 28
@@ -202,6 +226,10 @@ class SelectionView: NSView, NSTextFieldDelegate {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        return true
+    }
     
     deinit {
         NotificationCenter.default.removeObserver(self)
@@ -219,13 +247,12 @@ class SelectionView: NSView, NSTextFieldDelegate {
         if let start = startPoint, let current = currentPoint, mode == .selecting {
             let rect = normalizedRect(from: start, to: current)
             drawSelectionArea(rect, in: context)
-            drawSizeLabel(for: rect, in: context)
             drawCenterGuides(for: rect, in: context)
             drawControlPoints(for: rect, in: context)
+            drawSizeLabel(for: rect, in: context)
         } else if let rect = selectedRect {
             // Draw selected region
             drawSelectionArea(rect, in: context)
-            drawSizeLabel(for: rect, in: context)
             drawCenterGuides(for: rect, in: context)
             
             // Draw all completed drawing elements
@@ -242,22 +269,16 @@ class SelectionView: NSView, NSTextFieldDelegate {
             if currentTool == .none {
                 drawControlPoints(for: rect, in: context)
             }
+            drawSizeLabel(for: rect, in: context)
         }
     }
     
     private func drawSelectionArea(_ rect: NSRect, in context: CGContext) {
         context.setBlendMode(.normal)
-        
-        let imageHeight = CGFloat(screenImage.height)
-        let flippedRect = CGRect(
-            x: rect.origin.x,
-            y: imageHeight - rect.origin.y - rect.height,  // Flip Y-axis
-            width: rect.width,
-            height: rect.height
-        )
+        let imageRect = imageRectForViewRect(rect)
         
         // Draw the screen image in the selection area
-        if let croppedImage = screenImage.cropping(to: flippedRect) {
+        if let croppedImage = screenImage.cropping(to: imageRect) {
             context.draw(croppedImage, in: rect)
         }
         
@@ -558,11 +579,27 @@ class SelectionView: NSView, NSTextFieldDelegate {
         toolbar.addSubview(toolColorSeparator)
         xOffset += separatorWidth + buttonSpacing
 
-        let colorPickerButton = createToolButton(icon: "paintpalette", tool: .none, x: xOffset, y: 4)
+        let colorPickerButton = createIconButton(icon: "paintpalette", x: xOffset, y: 4)
+        colorPickerButton.target = self
         colorPickerButton.action = #selector(openColorPanel)
-        (colorPickerButton as? ToolbarButton)?.isActiveAppearance = false
+        colorPickerButton.isActiveAppearance = false
         colorButton = colorPickerButton
         toolbar.addSubview(colorPickerButton)
+
+        let indicatorSize: CGFloat = 10
+        let indicator = ColorSwatchButton(frame: NSRect(
+            x: xOffset + (toolButtonWidth - indicatorSize) / 2,
+            y: 26,
+            width: indicatorSize,
+            height: indicatorSize
+        ))
+        indicator.title = ""
+        indicator.image = nil
+        indicator.isBordered = false
+        indicator.isEnabled = false
+        indicator.swatchColor = currentColor
+        colorIndicator = indicator
+        toolbar.addSubview(indicator)
     }
 
     private func createToolButton(icon: String, tool: DrawingTool, x: CGFloat, y: CGFloat) -> NSButton {
@@ -584,6 +621,22 @@ class SelectionView: NSView, NSTextFieldDelegate {
         button.accentColor = NSColor(calibratedRed: 0.20, green: 0.64, blue: 1.0, alpha: 1.0)
         button.isActiveAppearance = (tool == .none)
         
+        return button
+    }
+
+    private func createIconButton(icon: String, x: CGFloat, y: CGFloat) -> ToolbarButton {
+        let button = ToolbarButton(frame: NSRect(x: x, y: y, width: toolButtonWidth, height: 28))
+        if let customImage = NSImage(named: icon) {
+            button.image = customImage
+            button.image?.isTemplate = true
+        } else {
+            button.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
+        }
+        button.bezelStyle = .regularSquare
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.contentTintColor = NSColor.white
+        button.accentColor = NSColor(calibratedRed: 0.20, green: 0.64, blue: 1.0, alpha: 1.0)
         return button
     }
     
@@ -609,7 +662,11 @@ class SelectionView: NSView, NSTextFieldDelegate {
     
     @objc private func toolSelected(_ sender: NSButton) {
         if let index = toolButtons.firstIndex(of: sender), index < toolButtonTypes.count {
-            currentTool = toolButtonTypes[index]
+            let nextTool = toolButtonTypes[index]
+            if currentTool == .text, nextTool != .text {
+                finishActiveTextEntry(commit: true)
+            }
+            currentTool = nextTool
             
             // Update button states
             toolButtons.forEach { button in
@@ -632,7 +689,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         pasteboard.writeObjects([nsImage])
         
         showNotification(message: "Copied to clipboard")
-        overlayWindow?.close()
+        NotificationCenter.default.post(name: .closeAllOverlays, object: nil)
     }
 
     @objc private func saveImage() {
@@ -652,7 +709,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
                 }
             }
         }
-        overlayWindow?.close()
+        NotificationCenter.default.post(name: .closeAllOverlays, object: nil)
     }
     
     @objc private func closeOverlay() {
@@ -666,13 +723,15 @@ class SelectionView: NSView, NSTextFieldDelegate {
     @objc private func colorPicked(_ sender: NSButton) {
         guard let swatch = sender.layer?.backgroundColor else { return }
         currentColor = NSColor(cgColor: swatch) ?? currentColor
+        colorIndicator?.swatchColor = currentColor
         hideColorPicker()
         needsDisplay = true
     }
 
     private func renderFinalImage(for rect: NSRect) -> CGImage {
-        let width = Int(rect.width)
-        let height = Int(rect.height)
+        let imageRect = imageRectForViewRect(rect)
+        let width = Int(imageRect.width)
+        let height = Int(imageRect.height)
         
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         guard let context = CGContext(
@@ -688,27 +747,23 @@ class SelectionView: NSView, NSTextFieldDelegate {
         }
         
         // Draw cropped screen image
-        if let croppedImage = screenImage.cropping(to: rect) {
+        if let croppedImage = screenImage.cropping(to: imageRect) {
             context.draw(croppedImage, in: CGRect(x: 0, y: 0, width: width, height: height))
         }
         
         // Draw all drawing elements (offset by rect origin)
-        context.saveGState()
-        context.translateBy(x: 0, y: CGFloat(height))
-        context.scaleBy(x: 1, y: -1)
-        
+        let scaleX = CGFloat(width) / rect.width
+        let scaleY = CGFloat(height) / rect.height
         for element in drawingElements {
-            drawElementWithOffset(element, in: context, offset: rect.origin)
+            drawElementWithOffset(element, in: context, offset: rect.origin, scaleX: scaleX, scaleY: scaleY)
         }
         
-        context.restoreGState()
-        
-        return context.makeImage() ?? (screenImage.cropping(to: rect) ?? screenImage)
+        return context.makeImage() ?? (screenImage.cropping(to: imageRect) ?? screenImage)
     }
 
-    private func drawElementWithOffset(_ element: DrawingElement, in context: CGContext, offset: NSPoint) {
+    private func drawElementWithOffset(_ element: DrawingElement, in context: CGContext, offset: NSPoint, scaleX: CGFloat, scaleY: CGFloat) {
         context.setStrokeColor(element.color.cgColor)
-        context.setLineWidth(element.lineWidth)
+        context.setLineWidth(element.lineWidth * max(scaleX, scaleY))
         context.setLineCap(.round)
         context.setLineJoin(.round)
         
@@ -717,47 +772,68 @@ class SelectionView: NSView, NSTextFieldDelegate {
             guard points.count > 1 else { return }
             context.beginPath()
             let firstPoint = points[0]
-            context.move(to: CGPoint(x: firstPoint.x - offset.x, y: firstPoint.y - offset.y))
+            context.move(to: CGPoint(
+                x: (firstPoint.x - offset.x) * scaleX,
+                y: (firstPoint.y - offset.y) * scaleY
+            ))
             for point in points.dropFirst() {
-                context.addLine(to: CGPoint(x: point.x - offset.x, y: point.y - offset.y))
+                context.addLine(to: CGPoint(
+                    x: (point.x - offset.x) * scaleX,
+                    y: (point.y - offset.y) * scaleY
+                ))
             }
             context.strokePath()
             
         case .line(let start, let end):
             context.beginPath()
-            context.move(to: CGPoint(x: start.x - offset.x, y: start.y - offset.y))
-            context.addLine(to: CGPoint(x: end.x - offset.x, y: end.y - offset.y))
+            context.move(to: CGPoint(
+                x: (start.x - offset.x) * scaleX,
+                y: (start.y - offset.y) * scaleY
+            ))
+            context.addLine(to: CGPoint(
+                x: (end.x - offset.x) * scaleX,
+                y: (end.y - offset.y) * scaleY
+            ))
             context.strokePath()
             
         case .arrow(let start, let end):
-            let adjustedStart = CGPoint(x: start.x - offset.x, y: start.y - offset.y)
-            let adjustedEnd = CGPoint(x: end.x - offset.x, y: end.y - offset.y)
-            drawArrow(from: adjustedStart, to: adjustedEnd, in: context, color: element.color, lineWidth: element.lineWidth)
+            let adjustedStart = CGPoint(
+                x: (start.x - offset.x) * scaleX,
+                y: (start.y - offset.y) * scaleY
+            )
+            let adjustedEnd = CGPoint(
+                x: (end.x - offset.x) * scaleX,
+                y: (end.y - offset.y) * scaleY
+            )
+            drawArrow(from: adjustedStart, to: adjustedEnd, in: context, color: element.color, lineWidth: element.lineWidth * max(scaleX, scaleY))
             
         case .rectangle(let rect):
             let adjustedRect = CGRect(
-                x: rect.origin.x - offset.x,
-                y: rect.origin.y - offset.y,
-                width: rect.width,
-                height: rect.height
+                x: (rect.origin.x - offset.x) * scaleX,
+                y: (rect.origin.y - offset.y) * scaleY,
+                width: rect.width * scaleX,
+                height: rect.height * scaleY
             )
             context.stroke(adjustedRect)
             
         case .circle(let rect):
             let adjustedRect = CGRect(
-                x: rect.origin.x - offset.x,
-                y: rect.origin.y - offset.y,
-                width: rect.width,
-                height: rect.height
+                x: (rect.origin.x - offset.x) * scaleX,
+                y: (rect.origin.y - offset.y) * scaleY,
+                width: rect.width * scaleX,
+                height: rect.height * scaleY
             )
             context.strokeEllipse(in: adjustedRect)
             
         case .text(let text, let point):
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: element.fontSize, weight: .semibold),
+                .font: NSFont.systemFont(ofSize: element.fontSize * scaleY, weight: .semibold),
                 .foregroundColor: element.color
             ]
-            let adjustedPoint = CGPoint(x: point.x - offset.x, y: point.y - offset.y)
+            let adjustedPoint = CGPoint(
+                x: (point.x - offset.x) * scaleX,
+                y: (point.y - offset.y) * scaleY
+            )
             let graphicsContext = NSGraphicsContext(cgContext: context, flipped: false)
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = graphicsContext
@@ -839,10 +915,15 @@ class SelectionView: NSView, NSTextFieldDelegate {
             
         case .dragging:
             guard var rect = selectedRect else { return }
+            let oldOrigin = rect.origin
             rect.origin = NSPoint(x: location.x - dragOffset.x, y: location.y - dragOffset.y)
             rect.origin.x = min(max(bounds.minX, rect.origin.x), bounds.maxX - rect.width)
             rect.origin.y = min(max(bounds.minY, rect.origin.y), bounds.maxY - rect.height)
             selectedRect = rect
+            let delta = NSPoint(x: rect.origin.x - oldOrigin.x, y: rect.origin.y - oldOrigin.y)
+            if delta.x != 0 || delta.y != 0 {
+                translateDrawingElements(by: delta)
+            }
             updateControlPoints()
             updateToolbar()
             needsDisplay = true
@@ -854,7 +935,12 @@ class SelectionView: NSView, NSTextFieldDelegate {
             needsDisplay = true
             
         case .drawing:
-            currentDrawingPoints.append(location)
+            if let rect = selectedRect {
+                let clamped = clampedPoint(location, to: rect)
+                currentDrawingPoints.append(clamped)
+            } else {
+                currentDrawingPoints.append(location)
+            }
             needsDisplay = true
             
         default:
@@ -884,6 +970,10 @@ class SelectionView: NSView, NSTextFieldDelegate {
             } else {
                 startPoint = nil
                 currentPoint = nil
+                if clampedRect.width <= 0 || clampedRect.height <= 0 {
+                    closeOverlay()
+                    return
+                }
             }
             needsDisplay = true
             
@@ -986,6 +1076,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
     private func updateControlPoints() {
         guard let rect = selectedRect else { return }
         controlPoints = controlPointRects(for: rect)
+        window?.invalidateCursorRects(for: self)
     }
 
     private func updateToolbar() {
@@ -1020,6 +1111,13 @@ class SelectionView: NSView, NSTextFieldDelegate {
         }
         xOffset += separatorWidth + buttonSpacing
         colorButton?.frame.origin = NSPoint(x: xOffset, y: 4)
+        if let colorIndicator {
+            colorIndicator.frame.origin = NSPoint(
+                x: xOffset + (toolButtonWidth - colorIndicator.frame.width) / 2,
+                y: 26
+            )
+        }
+        updateColorPickerPosition()
     }
     
     override func keyDown(with event: NSEvent) {
@@ -1043,16 +1141,26 @@ class SelectionView: NSView, NSTextFieldDelegate {
         return true
     }
 
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard currentTool == .none else { return }
+        for rect in controlPoints {
+            addCursorRect(rect.insetBy(dx: -4, dy: -4), cursor: .openHand)
+        }
+    }
+
     private func clearToolbar() {
         toolButtons.forEach { $0.removeFromSuperview() }
         actionButtons.forEach { $0.removeFromSuperview() }
         separatorViews.forEach { $0.removeFromSuperview() }
         colorButton?.removeFromSuperview()
+        colorIndicator?.removeFromSuperview()
         toolButtons.removeAll()
         toolButtonTypes.removeAll()
         actionButtons.removeAll()
         separatorViews.removeAll()
         colorButton = nil
+        colorIndicator = nil
         hideColorPicker()
         toolbarView?.removeFromSuperview()
         toolbarView = nil
@@ -1094,6 +1202,24 @@ class SelectionView: NSView, NSTextFieldDelegate {
         return NSPoint(x: x, y: y)
     }
 
+    private func clampedPoint(_ point: NSPoint, to rect: NSRect) -> NSPoint {
+        let x = min(max(rect.minX, point.x), rect.maxX)
+        let y = min(max(rect.minY, point.y), rect.maxY)
+        return NSPoint(x: x, y: y)
+    }
+
+    private func imageRectForViewRect(_ rect: NSRect) -> CGRect {
+        let scaleX = CGFloat(screenImage.width) / bounds.width
+        let scaleY = CGFloat(screenImage.height) / bounds.height
+        let flippedY = bounds.height - rect.maxY
+        return CGRect(
+            x: rect.minX * scaleX,
+            y: flippedY * scaleY,
+            width: rect.width * scaleX,
+            height: rect.height * scaleY
+        ).integral
+    }
+
     private func controlPointRects(for rect: NSRect) -> [NSRect] {
         let size: CGFloat = 8
         let half = size / 2
@@ -1107,6 +1233,44 @@ class SelectionView: NSView, NSTextFieldDelegate {
             NSRect(x: rect.minX - half, y: rect.midY - half, width: size, height: size), // Left-mid
             NSRect(x: rect.maxX - half, y: rect.midY - half, width: size, height: size)  // Right-mid
         ]
+    }
+
+    private func translateDrawingElements(by delta: NSPoint) {
+        guard !drawingElements.isEmpty else { return }
+        drawingElements = drawingElements.map { element in
+            switch element.type {
+            case .pen(let points):
+                let translated = points.map { NSPoint(x: $0.x + delta.x, y: $0.y + delta.y) }
+                return DrawingElement(type: .pen(points: translated), color: element.color, lineWidth: element.lineWidth, fontSize: element.fontSize)
+            case .line(let start, let end):
+                let newStart = NSPoint(x: start.x + delta.x, y: start.y + delta.y)
+                let newEnd = NSPoint(x: end.x + delta.x, y: end.y + delta.y)
+                return DrawingElement(type: .line(start: newStart, end: newEnd), color: element.color, lineWidth: element.lineWidth, fontSize: element.fontSize)
+            case .arrow(let start, let end):
+                let newStart = NSPoint(x: start.x + delta.x, y: start.y + delta.y)
+                let newEnd = NSPoint(x: end.x + delta.x, y: end.y + delta.y)
+                return DrawingElement(type: .arrow(start: newStart, end: newEnd), color: element.color, lineWidth: element.lineWidth, fontSize: element.fontSize)
+            case .rectangle(let rect):
+                let newRect = NSRect(
+                    x: rect.origin.x + delta.x,
+                    y: rect.origin.y + delta.y,
+                    width: rect.width,
+                    height: rect.height
+                )
+                return DrawingElement(type: .rectangle(rect: newRect), color: element.color, lineWidth: element.lineWidth, fontSize: element.fontSize)
+            case .circle(let rect):
+                let newRect = NSRect(
+                    x: rect.origin.x + delta.x,
+                    y: rect.origin.y + delta.y,
+                    width: rect.width,
+                    height: rect.height
+                )
+                return DrawingElement(type: .circle(rect: newRect), color: element.color, lineWidth: element.lineWidth, fontSize: element.fontSize)
+            case .text(let text, let point):
+                let newPoint = NSPoint(x: point.x + delta.x, y: point.y + delta.y)
+                return DrawingElement(type: .text(text: text, point: newPoint), color: element.color, lineWidth: element.lineWidth, fontSize: element.fontSize)
+            }
+        }
     }
 
     private func toggleColorPicker() {
@@ -1131,10 +1295,12 @@ class SelectionView: NSView, NSTextFieldDelegate {
         let pickerWidth = padding * 2 + CGFloat(columns) * swatchSize + CGFloat(columns - 1) * 6
         let pickerHeight = padding * 2 + CGFloat(rows) * swatchSize + CGFloat(rows - 1) * 6
 
-        let buttonFrame = button.convert(button.bounds, to: toolbar)
-        let pickerX = max(4, min(toolbar.bounds.maxX - pickerWidth - 4, buttonFrame.midX - pickerWidth / 2))
-        let pickerY = toolbar.frame.minY + toolbar.frame.height + 8
-
+        let (pickerX, pickerY) = colorPickerOrigin(
+            pickerSize: NSSize(width: pickerWidth, height: pickerHeight),
+            toolbar: toolbar,
+            button: button
+        )
+        
         let picker = NSView(frame: NSRect(x: pickerX, y: pickerY, width: pickerWidth, height: pickerHeight))
         picker.wantsLayer = true
         picker.layer?.cornerRadius = 8
@@ -1167,6 +1333,26 @@ class SelectionView: NSView, NSTextFieldDelegate {
         colorPickerView = nil
     }
 
+    private func updateColorPickerPosition() {
+        guard let picker = colorPickerView, let toolbar = toolbarView, let button = colorButton else { return }
+        let (pickerX, pickerY) = colorPickerOrigin(
+            pickerSize: picker.frame.size,
+            toolbar: toolbar,
+            button: button
+        )
+        picker.frame.origin = NSPoint(x: pickerX, y: pickerY)
+    }
+
+    private func colorPickerOrigin(pickerSize: NSSize, toolbar: NSView, button: NSView) -> (CGFloat, CGFloat) {
+        let buttonFrameInView = button.convert(button.bounds, to: self)
+        let toolbarFrameInView = toolbar.frame
+        let minX = toolbarFrameInView.minX + 4
+        let maxX = toolbarFrameInView.maxX - pickerSize.width - 4
+        let pickerX = max(minX, min(maxX, buttonFrameInView.midX - pickerSize.width / 2))
+        let pickerY = toolbarFrameInView.maxY + 8
+        return (pickerX, pickerY)
+    }
+
     private func createColorSwatch(color: NSColor, frame: NSRect) -> NSButton {
         let button = NSButton(frame: frame)
         button.wantsLayer = true
@@ -1185,14 +1371,17 @@ class SelectionView: NSView, NSTextFieldDelegate {
         activeTextField?.removeFromSuperview()
         activeTextField = nil
 
-        let field = NSTextField(frame: NSRect(x: point.x, y: point.y, width: 200, height: 26))
+        let font = NSFont.systemFont(ofSize: currentFontSize, weight: .semibold)
+        let fieldHeight = ceil(font.ascender - font.descender) + 4
+        let fieldOrigin = NSPoint(x: point.x, y: point.y - font.ascender)
+        let field = NSTextField(frame: NSRect(x: fieldOrigin.x, y: fieldOrigin.y, width: 200, height: fieldHeight))
         field.delegate = self
         field.isBordered = false
         field.isBezeled = false
         field.drawsBackground = false
         field.focusRingType = .none
         field.textColor = currentColor
-        field.font = NSFont.systemFont(ofSize: currentFontSize, weight: .semibold)
+        field.font = font
         addSubview(field)
         window?.makeFirstResponder(field)
         activeTextField = field
@@ -1200,11 +1389,17 @@ class SelectionView: NSView, NSTextFieldDelegate {
     }
     
     func controlTextDidEndEditing(_ notification: Notification) {
+        finishActiveTextEntry(commit: true)
+    }
+
+    private func finishActiveTextEntry(commit: Bool) {
         guard let field = activeTextField else { return }
-        let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let origin = activeTextOrigin, !text.isEmpty {
-            let element = DrawingElement(type: .text(text: text, point: origin), color: currentColor, lineWidth: currentLineWidth, fontSize: currentFontSize)
-            drawingElements.append(element)
+        if commit {
+            let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let origin = activeTextOrigin, !text.isEmpty {
+                let element = DrawingElement(type: .text(text: text, point: origin), color: currentColor, lineWidth: currentLineWidth, fontSize: currentFontSize)
+                drawingElements.append(element)
+            }
         }
         field.removeFromSuperview()
         activeTextField = nil

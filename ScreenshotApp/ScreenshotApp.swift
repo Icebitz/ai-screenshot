@@ -20,6 +20,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Hide dock icon
         NSApp.setActivationPolicy(.accessory)
         ProcessInfo.processInfo.disableAutomaticTermination("Keep menu bar app alive")
+
+        if let appIcon = NSImage(named: "AppIcon") {
+            NSApp.applicationIconImage = appIcon
+        }
         
         // Request screen recording permission
         requestScreenRecordingPermission()
