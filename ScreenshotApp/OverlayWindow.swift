@@ -113,6 +113,11 @@ enum ToolbarGroupPosition {
     case last
 }
 
+enum SwatchStyle {
+    case stroke
+    case fill
+}
+
 final class ToolbarButton: NSButton {
     var baseColor = NSColor(calibratedRed: 0.16, green: 0.19, blue: 0.26, alpha: 1.0)
     var accentColor: NSColor?
@@ -148,12 +153,11 @@ final class ToolbarButton: NSButton {
 
         applyGroupCorners(to: gradientLayer)
         applyGroupCorners(to: layer)
-        layer.borderWidth = 1
-        layer.borderColor = NSColor(calibratedWhite: 1.0, alpha: 0.10).cgColor
-        layer.shadowColor = NSColor.black.cgColor
-        layer.shadowOpacity = 0.35
-        layer.shadowRadius = 6
-        layer.shadowOffset = CGSize(width: 0, height: -1)
+        layer.borderWidth = 0
+        layer.borderColor = NSColor.clear.cgColor
+        layer.shadowOpacity = 0
+        layer.shadowRadius = 0
+        layer.shadowOffset = .zero
     }
 
     private func applyGroupCorners(to layer: CALayer) {
@@ -186,6 +190,12 @@ final class ColorSwatchButton: NSButton {
     var groupPosition: ToolbarGroupPosition = .single {
         didSet { needsDisplay = true }
     }
+    var swatchStyle: SwatchStyle = .fill {
+        didSet { needsDisplay = true }
+    }
+
+    private let indicatorLayer = CALayer()
+    private let checkerLayer = CALayer()
 
     override var isHighlighted: Bool {
         didSet { alphaValue = isHighlighted ? 0.8 : 1.0 }
@@ -195,13 +205,77 @@ final class ColorSwatchButton: NSButton {
         wantsLayer = true
         guard let layer = layer else { return }
         applyGroupCorners(to: layer)
-        layer.backgroundColor = swatchColor.cgColor
-        layer.borderWidth = 1
-        layer.borderColor = NSColor(calibratedWhite: 1.0, alpha: 0.18).cgColor
-        layer.shadowColor = NSColor.black.cgColor
-        layer.shadowOpacity = 0.3
-        layer.shadowRadius = 4
-        layer.shadowOffset = CGSize(width: 0, height: -1)
+        layer.backgroundColor = NSColor(calibratedRed: 0.16, green: 0.19, blue: 0.26, alpha: 1.0).cgColor
+        layer.borderWidth = 0
+        layer.borderColor = NSColor.clear.cgColor
+        layer.shadowOpacity = 0
+        layer.shadowRadius = 0
+        layer.shadowOffset = .zero
+
+        if indicatorLayer.superlayer == nil {
+            layer.addSublayer(indicatorLayer)
+        }
+        if checkerLayer.superlayer == nil {
+            layer.insertSublayer(checkerLayer, below: indicatorLayer)
+        }
+        indicatorLayer.frame = indicatorFrame()
+        indicatorLayer.cornerRadius = 2
+        indicatorLayer.borderColor = NSColor(calibratedWhite: 1.0, alpha: 0.2).cgColor
+        switch swatchStyle {
+        case .stroke:
+            indicatorLayer.backgroundColor = NSColor.clear.cgColor
+            indicatorLayer.borderWidth = 2
+            indicatorLayer.borderColor = swatchColor.cgColor
+        case .fill:
+            indicatorLayer.backgroundColor = swatchColor.cgColor
+            indicatorLayer.borderWidth = 1
+            indicatorLayer.borderColor = NSColor(calibratedWhite: 1.0, alpha: 0.2).cgColor
+        }
+
+        if swatchColor == .clear {
+            checkerLayer.frame = indicatorFrame()
+            checkerLayer.cornerRadius = 2
+            checkerLayer.contents = makeCheckerboardImage(size: checkerLayer.bounds.size, squareSize: 4)
+            checkerLayer.isHidden = false
+            indicatorLayer.backgroundColor = NSColor.clear.cgColor
+        } else {
+            checkerLayer.isHidden = true
+            checkerLayer.contents = nil
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        indicatorLayer.frame = indicatorFrame()
+        checkerLayer.frame = indicatorFrame()
+    }
+
+    private func indicatorFrame() -> CGRect {
+        return bounds.insetBy(dx: 6, dy: 6)
+    }
+
+    private func makeCheckerboardImage(size: NSSize, squareSize: CGFloat) -> NSImage {
+        let image = NSImage(size: size)
+        image.lockFocus()
+        let light = NSColor(calibratedWhite: 1.0, alpha: 0.6)
+        let dark = NSColor(calibratedWhite: 0.75, alpha: 0.6)
+        let cols = Int(ceil(size.width / squareSize))
+        let rows = Int(ceil(size.height / squareSize))
+        for row in 0..<rows {
+            for col in 0..<cols {
+                let color = (row + col) % 2 == 0 ? light : dark
+                color.setFill()
+                let rect = NSRect(
+                    x: CGFloat(col) * squareSize,
+                    y: CGFloat(row) * squareSize,
+                    width: squareSize,
+                    height: squareSize
+                )
+                rect.fill()
+            }
+        }
+        image.unlockFocus()
+        return image
     }
 
     private func applyGroupCorners(to layer: CALayer) {
@@ -256,11 +330,12 @@ class SelectionView: NSView, NSTextFieldDelegate {
     private var trackingArea: NSTrackingArea?
     
     // UI Elements
-    var toolButtons: [NSButton] = []
+    var toolButtons: [ToolbarButton] = []
     var toolButtonTypes: [DrawingTool] = []
-    var actionButtons: [NSButton] = []
+    var actionButtons: [ToolbarButton] = []
     var toolbarView: NSVisualEffectView?
     var separatorViews: [NSView] = []
+    var groupBorderViews: [NSView] = []
     var strokeColorButton: ColorSwatchButton?
     var fillColorButton: ColorSwatchButton?
     var lineWidthButton: ToolbarButton?
@@ -708,11 +783,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         }
         xOffset += buttonSpacing
         
-        let actionToolSeparator = createSeparator(height: 20)
-        actionToolSeparator.frame.origin = NSPoint(x: xOffset, y: 8)
-        separatorViews.append(actionToolSeparator)
-        toolbar.addSubview(actionToolSeparator)
-        xOffset += separatorWidth + buttonSpacing
+        xOffset += buttonSpacing
 
         // Tool buttons (right)
         let tools: [(String, DrawingTool)] = [
@@ -741,11 +812,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         }
         xOffset += buttonSpacing
         
-        let toolColorSeparator = createSeparator(height: 20)
-        toolColorSeparator.frame.origin = NSPoint(x: xOffset, y: 8)
-        separatorViews.append(toolColorSeparator)
-        toolbar.addSubview(toolColorSeparator)
-        xOffset += separatorWidth + buttonSpacing
+        xOffset += buttonSpacing
 
         let strokeButton = ColorSwatchButton(frame: NSRect(x: xOffset, y: 4, width: toolButtonWidth, height: 28))
         strokeButton.title = ""
@@ -754,8 +821,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
         strokeButton.swatchColor = currentStrokeColor
         strokeButton.target = self
         strokeButton.action = #selector(openStrokeColorPicker)
-        strokeButton.addSubview(makeSwatchLabel(text: "F"))
         strokeButton.groupPosition = .first
+        strokeButton.swatchStyle = .stroke
         strokeColorButton = strokeButton
         toolbar.addSubview(strokeButton)
         xOffset += toolButtonWidth + intraGroupSpacing
@@ -767,8 +834,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
         fillButton.swatchColor = currentFillColor ?? .clear
         fillButton.target = self
         fillButton.action = #selector(openFillColorPicker)
-        fillButton.addSubview(makeSwatchLabel(text: "B"))
         fillButton.groupPosition = .middle
+        fillButton.swatchStyle = .fill
         fillColorButton = fillButton
         toolbar.addSubview(fillButton)
         xOffset += toolButtonWidth + intraGroupSpacing
@@ -789,9 +856,11 @@ class SelectionView: NSView, NSTextFieldDelegate {
         fontButton.groupPosition = .last
         fontSettingsButton = fontButton
         toolbar.addSubview(fontButton)
+
+        updateGroupBorders()
     }
 
-    private func createToolButton(icon: String, tool: DrawingTool, x: CGFloat, y: CGFloat) -> NSButton {
+    private func createToolButton(icon: String, tool: DrawingTool, x: CGFloat, y: CGFloat) -> ToolbarButton {
         let button = ToolbarButton(frame: NSRect(x: x, y: y, width: toolButtonWidth, height: 28))
         if let customImage = NSImage(named: icon) {
             button.image = customImage
@@ -829,7 +898,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         return button
     }
     
-    private func createActionButton(icon: String, x: CGFloat, y: CGFloat, action: Selector) -> NSButton {
+    private func createActionButton(icon: String, x: CGFloat, y: CGFloat, action: Selector) -> ToolbarButton {
         let button = ToolbarButton(frame: NSRect(x: x, y: y, width: actionButtonWidth, height: 28))
         if let customImage = NSImage(named: icon) {
             button.image = customImage
@@ -850,12 +919,14 @@ class SelectionView: NSView, NSTextFieldDelegate {
     }
     
     @objc private func toolSelected(_ sender: NSButton) {
-        if let index = toolButtons.firstIndex(of: sender), index < toolButtonTypes.count {
+        guard let senderButton = sender as? ToolbarButton else { return }
+        if let index = toolButtons.firstIndex(where: { $0 === senderButton }),
+           index < toolButtonTypes.count {
             let nextTool = toolButtonTypes[index]
-            if currentTool == .text, nextTool != .text {
+            if currentTool == DrawingTool.text, nextTool != .text {
                 finishActiveTextEntry(commit: true)
             }
-            if currentTool == .eraser, nextTool != .eraser {
+            if currentTool == DrawingTool.eraser, nextTool != .eraser {
                 hoverEraserIndex = nil
             }
             currentTool = nextTool
@@ -886,6 +957,9 @@ class SelectionView: NSView, NSTextFieldDelegate {
         let savePanel = NSSavePanel()
         savePanel.allowedContentTypes = [.png]
         savePanel.nameFieldStringValue = "Screenshot \(Date().timeIntervalSince1970).png"
+        if let directoryURL = SettingsStore.saveDirectoryURL {
+            savePanel.directoryURL = directoryURL
+        }
         
         savePanel.begin { response in
             if response == .OK, let url = savePanel.url {
@@ -1107,10 +1181,14 @@ class SelectionView: NSView, NSTextFieldDelegate {
             }
             if currentTool == .eyedropper {
                 if let picked = colorAtViewPoint(location) {
-                    currentStrokeColor = picked
-                    strokeColorButton?.swatchColor = picked
-                    currentFillColor = picked
-                    fillColorButton?.swatchColor = picked
+                    switch activeColorTarget {
+                    case .stroke:
+                        currentStrokeColor = picked
+                        strokeColorButton?.swatchColor = picked
+                    case .fill:
+                        currentFillColor = picked
+                        fillColorButton?.swatchColor = picked
+                    }
                 }
                 currentTool = .none
                 updateToolButtonStates()
@@ -1383,10 +1461,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
             }
         }
         xOffset += buttonSpacing
-        if separatorViews.count >= 1 {
-            separatorViews[0].frame.origin = NSPoint(x: xOffset, y: 8)
-        }
-        xOffset += separatorWidth + buttonSpacing
+        xOffset += buttonSpacing
 
         for (index, button) in toolButtons.enumerated() {
             button.frame.origin = NSPoint(x: xOffset, y: 4)
@@ -1396,10 +1471,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
             }
         }
         xOffset += buttonSpacing
-        if separatorViews.count >= 2 {
-            separatorViews[1].frame.origin = NSPoint(x: xOffset, y: 8)
-        }
-        xOffset += separatorWidth + buttonSpacing
+        xOffset += buttonSpacing
         strokeColorButton?.frame.origin = NSPoint(x: xOffset, y: 4)
         xOffset += toolButtonWidth + intraGroupSpacing
         fillColorButton?.frame.origin = NSPoint(x: xOffset, y: 4)
@@ -1407,6 +1479,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         lineWidthButton?.frame.origin = NSPoint(x: xOffset, y: 4)
         xOffset += toolButtonWidth + intraGroupSpacing
         fontSettingsButton?.frame.origin = NSPoint(x: xOffset, y: 4)
+        updateGroupBorders()
         updateColorPickerPosition()
         updateLineWidthPickerPosition()
         updateFontPickerPosition()
@@ -1416,11 +1489,11 @@ class SelectionView: NSView, NSTextFieldDelegate {
     private func updateToolButtonStates() {
         toolButtons.forEach { button in
             button.state = .off
-            (button as? ToolbarButton)?.isActiveAppearance = false
+            button.isActiveAppearance = false
         }
         if let index = toolButtonTypes.firstIndex(of: currentTool),
-           index < toolButtons.count,
-           let button = toolButtons[index] as? ToolbarButton {
+           index < toolButtons.count {
+            let button = toolButtons[index]
             button.state = .on
             button.isActiveAppearance = true
         }
@@ -1497,6 +1570,11 @@ class SelectionView: NSView, NSTextFieldDelegate {
 
     override func mouseMoved(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
+        if let toolbar = toolbarView, toolbar.frame.contains(location) {
+            NSCursor.arrow.set()
+            super.mouseMoved(with: event)
+            return
+        }
         if currentTool == .eraser, let rect = selectedRect, rect.contains(location) {
             hoverEraserIndex = drawingElements.lastIndex(where: { elementHitTest($0, point: location, tolerance: 6) })
             needsDisplay = true
@@ -1518,6 +1596,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         toolButtons.forEach { $0.removeFromSuperview() }
         actionButtons.forEach { $0.removeFromSuperview() }
         separatorViews.forEach { $0.removeFromSuperview() }
+        groupBorderViews.forEach { $0.removeFromSuperview() }
         strokeColorButton?.removeFromSuperview()
         fillColorButton?.removeFromSuperview()
         lineWidthButton?.removeFromSuperview()
@@ -1526,6 +1605,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         toolButtonTypes.removeAll()
         actionButtons.removeAll()
         separatorViews.removeAll()
+        groupBorderViews.removeAll()
         strokeColorButton = nil
         fillColorButton = nil
         lineWidthButton = nil
@@ -1553,10 +1633,9 @@ class SelectionView: NSView, NSTextFieldDelegate {
         let actionWidth = actionButtonWidth * CGFloat(actionCount)
         let toolWidth = toolButtonWidth * CGFloat(toolCount)
         let colorWidth = toolButtonWidth * CGFloat(colorCount)
-        let separatorsWidth = separatorWidth * 2
         let intraSpacingCount = max(0, actionCount - 1) + max(0, toolCount - 1) + max(0, colorCount - 1)
         let groupSpacingCount = 4
-        return actionWidth + toolWidth + colorWidth + separatorsWidth
+        return actionWidth + toolWidth + colorWidth
             + intraGroupSpacing * CGFloat(intraSpacingCount)
             + buttonSpacing * CGFloat(groupSpacingCount)
     }
@@ -1570,6 +1649,45 @@ class SelectionView: NSView, NSTextFieldDelegate {
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor(calibratedWhite: 1.0, alpha: 0.12).cgColor
         return view
+    }
+
+    private func createGroupBorder(for views: [NSView]) -> NSView? {
+        guard !views.isEmpty else { return nil }
+        let frames = views.map { $0.frame }
+        let minX = frames.map { $0.minX }.min() ?? 0
+        let maxX = frames.map { $0.maxX }.max() ?? 0
+        let minY = frames.map { $0.minY }.min() ?? 0
+        let maxY = frames.map { $0.maxY }.max() ?? 0
+        let borderView = NSView(frame: NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY))
+        borderView.wantsLayer = true
+        borderView.layer?.cornerRadius = 6
+        borderView.layer?.borderWidth = 1
+        borderView.layer?.borderColor = NSColor(calibratedWhite: 1.0, alpha: 0.10).cgColor
+        borderView.layer?.backgroundColor = NSColor.clear.cgColor
+        return borderView
+    }
+
+    private func updateGroupBorders() {
+        groupBorderViews.forEach { $0.removeFromSuperview() }
+        groupBorderViews.removeAll()
+        guard let toolbar = toolbarView else { return }
+
+        if let border = createGroupBorder(for: actionButtons) {
+            toolbar.addSubview(border, positioned: .below, relativeTo: actionButtons.first)
+            groupBorderViews.append(border)
+        }
+        if let border = createGroupBorder(for: toolButtons) {
+            toolbar.addSubview(border, positioned: .below, relativeTo: toolButtons.first)
+            groupBorderViews.append(border)
+        }
+        if let stroke = strokeColorButton,
+           let fill = fillColorButton,
+           let width = lineWidthButton,
+           let font = fontSettingsButton,
+           let border = createGroupBorder(for: [stroke, fill, width, font]) {
+            toolbar.addSubview(border, positioned: .below, relativeTo: stroke)
+            groupBorderViews.append(border)
+        }
     }
 
     private func makeSwatchLabel(text: String) -> NSTextField {
@@ -1816,7 +1934,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         let colors: [NSColor] = [
             .clear, .white, .black, .systemRed, .systemOrange, .systemYellow,
             .systemGreen, .systemTeal, .systemBlue, .systemIndigo, .systemPurple, .systemPink,
-            .systemBrown, .systemGray, .lightGray, .darkGray, .cyan, .magenta
+            .systemBrown, .systemGray, .lightGray, .darkGray, .cyan
         ]
         let totalItems = colors.count + 1
         let rows = Int(ceil(Double(totalItems) / Double(columns)))
@@ -1982,6 +2100,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
 
         let fontPopup = NSPopUpButton(frame: NSRect(x: padding, y: padding + sliderHeight + 6, width: width - padding * 2, height: rowHeight), pullsDown: false)
         fontPopup.addItems(withTitles: fontChoices.map { $0.label })
+        styleFontPopup(fontPopup)
         if let index = fontChoices.firstIndex(where: { $0.name == currentFontName }) {
             fontPopup.selectItem(at: index)
         } else {
@@ -2015,6 +2134,21 @@ class SelectionView: NSView, NSTextFieldDelegate {
             button: button
         )
         picker.frame.origin = NSPoint(x: pickerX, y: pickerY)
+    }
+
+    private func styleFontPopup(_ popup: NSPopUpButton) {
+        popup.appearance = NSAppearance(named: .vibrantDark)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.white
+        ]
+        if let items = popup.menu?.items {
+            for item in items {
+                item.attributedTitle = NSAttributedString(string: item.title, attributes: attributes)
+            }
+        }
+        if let selectedItem = popup.selectedItem {
+            selectedItem.attributedTitle = NSAttributedString(string: selectedItem.title, attributes: attributes)
+        }
     }
 
     @objc private func fontNamePicked(_ sender: NSPopUpButton) {
@@ -2091,15 +2225,12 @@ class SelectionView: NSView, NSTextFieldDelegate {
         button.target = self
         button.action = #selector(colorPicked(_:))
         if color == .clear {
-            let slash = CAShapeLayer()
-            let insetRect = frame.insetBy(dx: 3, dy: 3)
-            let path = NSBezierPath()
-            path.move(to: NSPoint(x: insetRect.minX, y: insetRect.minY))
-            path.line(to: NSPoint(x: insetRect.maxX, y: insetRect.maxY))
-            slash.path = path.cgPath
-            slash.strokeColor = NSColor.systemRed.cgColor
-            slash.lineWidth = 2
-            button.layer?.addSublayer(slash)
+            button.layer?.backgroundColor = NSColor.clear.cgColor
+            let checkerLayer = CALayer()
+            checkerLayer.frame = button.bounds.insetBy(dx: 1, dy: 1)
+            checkerLayer.contents = makeCheckerboardImage(size: checkerLayer.bounds.size, squareSize: 4)
+            checkerLayer.contentsGravity = .resize
+            button.layer?.insertSublayer(checkerLayer, at: 0)
         }
         return button
     }
@@ -2121,6 +2252,30 @@ class SelectionView: NSView, NSTextFieldDelegate {
         return button
     }
 
+    private func makeCheckerboardImage(size: NSSize, squareSize: CGFloat) -> NSImage {
+        let image = NSImage(size: size)
+        image.lockFocus()
+        let light = NSColor(calibratedWhite: 1.0, alpha: 0.6)
+        let dark = NSColor(calibratedWhite: 0.75, alpha: 0.6)
+        let cols = Int(ceil(size.width / squareSize))
+        let rows = Int(ceil(size.height / squareSize))
+        for row in 0..<rows {
+            for col in 0..<cols {
+                let color = (row + col) % 2 == 0 ? light : dark
+                color.setFill()
+                let rect = NSRect(
+                    x: CGFloat(col) * squareSize,
+                    y: CGFloat(row) * squareSize,
+                    width: squareSize,
+                    height: squareSize
+                )
+                rect.fill()
+            }
+        }
+        image.unlockFocus()
+        return image
+    }
+
     private func startTextEntry(at point: NSPoint) {
         activeTextField?.removeFromSuperview()
         activeTextField = nil
@@ -2134,7 +2289,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         field.isBezeled = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.placeholderString = "Text"
+        field.placeholderString = "Type text here"
         field.textColor = currentStrokeColor
         field.font = font
         addSubview(field)

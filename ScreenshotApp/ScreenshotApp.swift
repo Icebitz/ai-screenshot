@@ -8,7 +8,7 @@ struct ScreenshotApp: App {
     
     var body: some Scene {
         Settings {
-            EmptyView()
+            SettingsView()
         }
     }
 }
@@ -23,6 +23,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Hide dock icon
         NSApp.setActivationPolicy(.accessory)
         ProcessInfo.processInfo.disableAutomaticTermination("Keep menu bar app alive")
+        SettingsStore.registerDefaults()
 
         if let appIcon = NSImage(named: "AppIcon") {
             NSApp.applicationIconImage = appIcon
@@ -37,6 +38,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize screenshot manager
         screenshotManager = ScreenshotManager()
         registerGlobalHotKey()
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(refreshHotKey),
+            name: .hotkeyPreferencesDidChange,
+            object: nil
+        )
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -85,6 +93,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         screenshotItem.keyEquivalentModifierMask = [.command, .shift]
         menu.addItem(screenshotItem)
         menu.addItem(NSMenuItem.separator())
+
+        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.keyEquivalentModifierMask = [.command]
+        menu.addItem(settingsItem)
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
         
         statusItem?.menu = menu
@@ -92,6 +105,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc func takeScreenshot() {
         screenshotManager?.startCapture()
+    }
+
+    @objc func openSettings() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
     
     @objc func quit() {
@@ -103,9 +121,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func registerGlobalHotKey() {
+        unregisterGlobalHotKey()
         let hotKeyId = EventHotKeyID(signature: OSType(UInt32(truncatingIfNeeded: ("SSAP" as NSString).hash)), id: 1)
-        let modifiers: UInt32 = UInt32(cmdKey | shiftKey)
-        let keyCode: UInt32 = UInt32(kVK_ANSI_0)
+        let modifiers: UInt32 = SettingsStore.hotKeyModifiers
+        let keyCode: UInt32 = SettingsStore.hotKeyCode
         let status = RegisterEventHotKey(keyCode, modifiers, hotKeyId, GetApplicationEventTarget(), 0, &hotKeyRef)
         guard status == noErr else {
             print("Failed to register hotkey: \(status)")
@@ -133,5 +152,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             RemoveEventHandler(hotKeyHandler)
             self.hotKeyHandler = nil
         }
+    }
+
+    @objc private func refreshHotKey() {
+        registerGlobalHotKey()
     }
 }
