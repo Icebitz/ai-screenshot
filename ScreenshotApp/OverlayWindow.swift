@@ -100,6 +100,7 @@ struct DrawingElement {
     let fillColor: NSColor?
     let lineWidth: CGFloat
     let fontSize: CGFloat
+    let fontName: String
 }
 
 final class ToolbarButton: NSButton {
@@ -196,6 +197,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
     var currentDrawingPoints: [NSPoint] = []
     var drawingStartPoint: NSPoint?
     var currentFontSize: CGFloat = 16
+    var currentFontName: String = NSFont.systemFont(ofSize: 16).fontName
     var activeTextField: NSTextField?
     var activeTextOrigin: NSPoint?
     
@@ -208,8 +210,10 @@ class SelectionView: NSView, NSTextFieldDelegate {
     var strokeColorButton: ColorSwatchButton?
     var fillColorButton: ColorSwatchButton?
     var lineWidthButton: ToolbarButton?
+    var fontSettingsButton: ToolbarButton?
     var colorPickerView: NSView?
     var lineWidthPickerView: NSView?
+    var fontPickerView: NSView?
     var activeColorTarget: ColorTarget = .stroke
 
     private let toolButtonWidth: CGFloat = 28
@@ -217,6 +221,12 @@ class SelectionView: NSView, NSTextFieldDelegate {
     private let toolbarPadding: CGFloat = 10
     private let buttonSpacing: CGFloat = 8
     private let separatorWidth: CGFloat = 1
+    private let fontChoices: [(label: String, name: String)] = [
+        ("System", NSFont.systemFont(ofSize: 16).fontName),
+        ("Monospace", NSFont.monospacedSystemFont(ofSize: 16, weight: .regular).fontName),
+        ("Helvetica Neue", "Helvetica Neue"),
+        ("Avenir Next", "Avenir Next")
+    ]
     
     
     init(frame: NSRect, screenImage: CGImage, overlayId: UUID) {
@@ -404,7 +414,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
             
         case .text(let text, let point):
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: element.fontSize, weight: .semibold),
+                .font: fontFromElement(element),
                 .foregroundColor: element.strokeColor
             ]
             NSString(string: text).draw(at: point, withAttributes: attributes)
@@ -641,6 +651,14 @@ class SelectionView: NSView, NSTextFieldDelegate {
         widthButton.isActiveAppearance = false
         lineWidthButton = widthButton
         toolbar.addSubview(widthButton)
+        xOffset += toolButtonWidth + buttonSpacing
+
+        let fontButton = createIconButton(icon: "textformat.size", x: xOffset, y: 4)
+        fontButton.target = self
+        fontButton.action = #selector(toggleFontPicker)
+        fontButton.isActiveAppearance = false
+        fontSettingsButton = fontButton
+        toolbar.addSubview(fontButton)
     }
 
     private func createToolButton(icon: String, tool: DrawingTool, x: CGFloat, y: CGFloat) -> NSButton {
@@ -884,7 +902,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
             
         case .text(let text, let point):
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: element.fontSize * scaleY, weight: .semibold),
+                .font: fontFromElement(element, size: element.fontSize * scaleY),
                 .foregroundColor: element.strokeColor
             ]
             let adjustedPoint = CGPoint(
@@ -1072,24 +1090,24 @@ class SelectionView: NSView, NSTextFieldDelegate {
         
         switch currentTool {
         case .pen:
-            element = DrawingElement(type: .pen(points: currentDrawingPoints), strokeColor: currentStrokeColor, fillColor: nil, lineWidth: currentLineWidth, fontSize: currentFontSize)
+            element = DrawingElement(type: .pen(points: currentDrawingPoints), strokeColor: currentStrokeColor, fillColor: nil, lineWidth: currentLineWidth, fontSize: currentFontSize, fontName: currentFontName)
         case .line:
             if let start = drawingStartPoint, let end = currentDrawingPoints.last {
-                element = DrawingElement(type: .line(start: start, end: end), strokeColor: currentStrokeColor, fillColor: nil, lineWidth: currentLineWidth, fontSize: currentFontSize)
+                element = DrawingElement(type: .line(start: start, end: end), strokeColor: currentStrokeColor, fillColor: nil, lineWidth: currentLineWidth, fontSize: currentFontSize, fontName: currentFontName)
             } else { return }
         case .arrow:
             if let start = drawingStartPoint, let end = currentDrawingPoints.last {
-                element = DrawingElement(type: .arrow(start: start, end: end), strokeColor: currentStrokeColor, fillColor: nil, lineWidth: currentLineWidth, fontSize: currentFontSize)
+                element = DrawingElement(type: .arrow(start: start, end: end), strokeColor: currentStrokeColor, fillColor: nil, lineWidth: currentLineWidth, fontSize: currentFontSize, fontName: currentFontName)
             } else { return }
         case .rectangle:
             if let start = drawingStartPoint, let end = currentDrawingPoints.last {
                 let rect = normalizedRect(from: start, to: end)
-                element = DrawingElement(type: .rectangle(rect: rect), strokeColor: currentStrokeColor, fillColor: currentFillColor, lineWidth: currentLineWidth, fontSize: currentFontSize)
+                element = DrawingElement(type: .rectangle(rect: rect), strokeColor: currentStrokeColor, fillColor: currentFillColor, lineWidth: currentLineWidth, fontSize: currentFontSize, fontName: currentFontName)
             } else { return }
         case .circle:
             if let start = drawingStartPoint, let end = currentDrawingPoints.last {
                 let rect = normalizedRect(from: start, to: end)
-                element = DrawingElement(type: .circle(rect: rect), strokeColor: currentStrokeColor, fillColor: currentFillColor, lineWidth: currentLineWidth, fontSize: currentFontSize)
+                element = DrawingElement(type: .circle(rect: rect), strokeColor: currentStrokeColor, fillColor: currentFillColor, lineWidth: currentLineWidth, fontSize: currentFontSize, fontName: currentFontName)
             } else { return }
         case .text:
             return
@@ -1190,8 +1208,12 @@ class SelectionView: NSView, NSTextFieldDelegate {
         fillColorButton?.frame.origin = NSPoint(x: xOffset, y: 4)
         xOffset += toolButtonWidth + buttonSpacing
         lineWidthButton?.frame.origin = NSPoint(x: xOffset, y: 4)
+        xOffset += toolButtonWidth + buttonSpacing
+        fontSettingsButton?.frame.origin = NSPoint(x: xOffset, y: 4)
         updateColorPickerPosition()
         updateLineWidthPickerPosition()
+        updateFontPickerPosition()
+        updateFontButtonState()
     }
 
     private func updateToolButtonStates() {
@@ -1204,6 +1226,15 @@ class SelectionView: NSView, NSTextFieldDelegate {
            let button = toolButtons[index] as? ToolbarButton {
             button.state = .on
             button.isActiveAppearance = true
+        }
+        updateFontButtonState()
+    }
+
+    private func updateFontButtonState() {
+        let enabled = currentTool == .text
+        fontSettingsButton?.isEnabled = enabled
+        if !enabled {
+            hideFontPicker()
         }
     }
     
@@ -1255,6 +1286,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         strokeColorButton?.removeFromSuperview()
         fillColorButton?.removeFromSuperview()
         lineWidthButton?.removeFromSuperview()
+        fontSettingsButton?.removeFromSuperview()
         toolButtons.removeAll()
         toolButtonTypes.removeAll()
         actionButtons.removeAll()
@@ -1262,8 +1294,10 @@ class SelectionView: NSView, NSTextFieldDelegate {
         strokeColorButton = nil
         fillColorButton = nil
         lineWidthButton = nil
+        fontSettingsButton = nil
         hideColorPicker()
         hideLineWidthPicker()
+        hideFontPicker()
         toolbarView?.removeFromSuperview()
         toolbarView = nil
     }
@@ -1279,7 +1313,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
 
     private func toolbarContentWidth() -> CGFloat {
         let toolCount = 9
-        let colorCount = 3
+        let colorCount = 4
         let actionWidth = actionButtonWidth * 3
         let toolWidth = toolButtonWidth * CGFloat(toolCount)
         let colorWidth = toolButtonWidth * CGFloat(colorCount)
@@ -1391,7 +1425,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
             return ellipseEdgeHitTest(rect, point: point, tolerance: tolerance)
         case .text(let text, let origin):
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: element.fontSize, weight: .semibold)
+                .font: fontFromElement(element)
             ]
             let size = NSString(string: text).size(withAttributes: attributes)
             let textRect = NSRect(x: origin.x, y: origin.y, width: size.width, height: size.height)
@@ -1457,15 +1491,15 @@ class SelectionView: NSView, NSTextFieldDelegate {
             switch element.type {
             case .pen(let points):
                 let translated = points.map { NSPoint(x: $0.x + delta.x, y: $0.y + delta.y) }
-                return DrawingElement(type: .pen(points: translated), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize)
+                return DrawingElement(type: .pen(points: translated), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
             case .line(let start, let end):
                 let newStart = NSPoint(x: start.x + delta.x, y: start.y + delta.y)
                 let newEnd = NSPoint(x: end.x + delta.x, y: end.y + delta.y)
-                return DrawingElement(type: .line(start: newStart, end: newEnd), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize)
+                return DrawingElement(type: .line(start: newStart, end: newEnd), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
             case .arrow(let start, let end):
                 let newStart = NSPoint(x: start.x + delta.x, y: start.y + delta.y)
                 let newEnd = NSPoint(x: end.x + delta.x, y: end.y + delta.y)
-                return DrawingElement(type: .arrow(start: newStart, end: newEnd), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize)
+                return DrawingElement(type: .arrow(start: newStart, end: newEnd), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
             case .rectangle(let rect):
                 let newRect = NSRect(
                     x: rect.origin.x + delta.x,
@@ -1473,7 +1507,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
                     width: rect.width,
                     height: rect.height
                 )
-                return DrawingElement(type: .rectangle(rect: newRect), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize)
+                return DrawingElement(type: .rectangle(rect: newRect), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
             case .circle(let rect):
                 let newRect = NSRect(
                     x: rect.origin.x + delta.x,
@@ -1481,10 +1515,10 @@ class SelectionView: NSView, NSTextFieldDelegate {
                     width: rect.width,
                     height: rect.height
                 )
-                return DrawingElement(type: .circle(rect: newRect), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize)
+                return DrawingElement(type: .circle(rect: newRect), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
             case .text(let text, let point):
                 let newPoint = NSPoint(x: point.x + delta.x, y: point.y + delta.y)
-                return DrawingElement(type: .text(text: text, point: newPoint), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize)
+                return DrawingElement(type: .text(text: text, point: newPoint), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
             }
         }
     }
@@ -1514,7 +1548,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
         let columns = 6
         let colors: [NSColor] = [
             .clear, .white, .black, .systemRed, .systemOrange, .systemYellow,
-            .systemTeal, .systemBlue, .systemPurple, .systemPink, .systemBrown, .systemGray
+            .systemGreen, .systemTeal, .systemBlue, .systemIndigo, .systemPurple, .systemPink,
+            .systemBrown, .systemGray, .lightGray, .darkGray, .cyan, .magenta
         ]
         let rows = Int(ceil(Double(colors.count) / Double(columns)))
         let pickerWidth = padding * 2 + CGFloat(columns) * swatchSize + CGFloat(columns - 1) * 6
@@ -1560,6 +1595,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
 
     @objc private func toggleLineWidthPicker() {
         hideColorPicker()
+        hideFontPicker()
         if lineWidthPickerView != nil {
             hideLineWidthPicker()
         } else {
@@ -1635,6 +1671,98 @@ class SelectionView: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
+    @objc private func toggleFontPicker() {
+        hideColorPicker()
+        hideLineWidthPicker()
+        if fontPickerView != nil {
+            hideFontPicker()
+        } else {
+            showFontPicker()
+        }
+    }
+
+    private func showFontPicker() {
+        guard let toolbar = toolbarView, let button = fontSettingsButton else { return }
+
+        let padding: CGFloat = 10
+        let width: CGFloat = 180
+        let rowHeight: CGFloat = 22
+        let sliderHeight: CGFloat = 16
+        let totalHeight = padding * 2 + rowHeight + 6 + sliderHeight
+
+        let (pickerX, pickerY) = pickerOrigin(
+            pickerSize: NSSize(width: width, height: totalHeight),
+            toolbar: toolbar,
+            button: button
+        )
+
+        let picker = NSView(frame: NSRect(x: pickerX, y: pickerY, width: width, height: totalHeight))
+        picker.wantsLayer = true
+        picker.layer?.cornerRadius = 8
+        picker.layer?.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 0.95).cgColor
+        picker.layer?.borderWidth = 1
+        picker.layer?.borderColor = NSColor(calibratedWhite: 1.0, alpha: 0.12).cgColor
+        picker.layer?.shadowColor = NSColor.black.cgColor
+        picker.layer?.shadowOpacity = 0.35
+        picker.layer?.shadowRadius = 8
+        picker.layer?.shadowOffset = CGSize(width: 0, height: -2)
+
+        let fontPopup = NSPopUpButton(frame: NSRect(x: padding, y: padding + sliderHeight + 6, width: width - padding * 2, height: rowHeight), pullsDown: false)
+        fontPopup.addItems(withTitles: fontChoices.map { $0.label })
+        if let index = fontChoices.firstIndex(where: { $0.name == currentFontName }) {
+            fontPopup.selectItem(at: index)
+        } else {
+            fontPopup.selectItem(at: 0)
+            currentFontName = fontChoices[0].name
+        }
+        fontPopup.target = self
+        fontPopup.action = #selector(fontNamePicked(_:))
+        picker.addSubview(fontPopup)
+
+        let slider = NSSlider(value: Double(currentFontSize), minValue: 10, maxValue: 48, target: self, action: #selector(fontSizeChanged(_:)))
+        slider.frame = NSRect(x: padding, y: padding, width: width - padding * 2, height: sliderHeight)
+        slider.controlSize = .small
+        slider.isContinuous = true
+        picker.addSubview(slider)
+
+        addSubview(picker)
+        fontPickerView = picker
+    }
+
+    private func hideFontPicker() {
+        fontPickerView?.removeFromSuperview()
+        fontPickerView = nil
+    }
+
+    private func updateFontPickerPosition() {
+        guard let picker = fontPickerView, let toolbar = toolbarView, let button = fontSettingsButton else { return }
+        let (pickerX, pickerY) = pickerOrigin(
+            pickerSize: picker.frame.size,
+            toolbar: toolbar,
+            button: button
+        )
+        picker.frame.origin = NSPoint(x: pickerX, y: pickerY)
+    }
+
+    @objc private func fontNamePicked(_ sender: NSPopUpButton) {
+        let index = sender.indexOfSelectedItem
+        guard index >= 0 && index < fontChoices.count else { return }
+        let choice = fontChoices[index]
+        currentFontName = choice.name
+        if let field = activeTextField {
+            field.font = currentTextFont()
+        }
+        needsDisplay = true
+    }
+
+    @objc private func fontSizeChanged(_ sender: NSSlider) {
+        currentFontSize = CGFloat(sender.doubleValue)
+        if let field = activeTextField {
+            field.font = currentTextFont()
+        }
+        needsDisplay = true
+    }
+
     private func updateColorPickerPosition() {
         guard let picker = colorPickerView, let toolbar = toolbarView else { return }
         let button: NSView?
@@ -1651,6 +1779,21 @@ class SelectionView: NSView, NSTextFieldDelegate {
             button: anchor
         )
         picker.frame.origin = NSPoint(x: pickerX, y: pickerY)
+    }
+
+    private func currentTextFont() -> NSFont {
+        if let font = NSFont(name: currentFontName, size: currentFontSize) {
+            return font
+        }
+        return NSFont.systemFont(ofSize: currentFontSize, weight: .semibold)
+    }
+
+    private func fontFromElement(_ element: DrawingElement, size: CGFloat? = nil) -> NSFont {
+        let targetSize = size ?? element.fontSize
+        if let font = NSFont(name: element.fontName, size: targetSize) {
+            return font
+        }
+        return NSFont.systemFont(ofSize: targetSize, weight: .semibold)
     }
 
     private func pickerOrigin(pickerSize: NSSize, toolbar: NSView, button: NSView) -> (CGFloat, CGFloat) {
@@ -1692,7 +1835,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         activeTextField?.removeFromSuperview()
         activeTextField = nil
 
-        let font = NSFont.systemFont(ofSize: currentFontSize, weight: .semibold)
+        let font = currentTextFont()
         let fieldHeight = ceil(font.ascender - font.descender) + 4
         let fieldOrigin = NSPoint(x: point.x, y: point.y - font.ascender)
         let field = NSTextField(frame: NSRect(x: fieldOrigin.x, y: fieldOrigin.y, width: 200, height: fieldHeight))
@@ -1718,8 +1861,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
         if commit {
             let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             if let origin = activeTextOrigin, !text.isEmpty {
-                let element = DrawingElement(type: .text(text: text, point: origin), strokeColor: currentStrokeColor, fillColor: nil, lineWidth: currentLineWidth, fontSize: currentFontSize)
-                drawingElements.append(element)
+        let element = DrawingElement(type: .text(text: text, point: origin), strokeColor: currentStrokeColor, fillColor: nil, lineWidth: currentLineWidth, fontSize: currentFontSize, fontName: currentFontName)
+        drawingElements.append(element)
             }
         }
         field.removeFromSuperview()
