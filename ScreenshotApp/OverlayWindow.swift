@@ -66,6 +66,7 @@ enum SelectionMode {
     case dragging       // Moving the selection
     case resizing       // Resizing via control points
     case drawing        // Drawing on the image
+    case elementDragging // Moving a drawn element
 }
 
 enum DrawingTool {
@@ -187,6 +188,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
     var controlPoints: [NSRect] = []
     var dragOffset: NSPoint = .zero
     var resizingCorner: Int? = nil
+    var lastDragPoint: NSPoint?
     
     // Drawing
     var currentTool: DrawingTool = .none
@@ -200,6 +202,9 @@ class SelectionView: NSView, NSTextFieldDelegate {
     var currentFontName: String = NSFont.systemFont(ofSize: 16).fontName
     var activeTextField: NSTextField?
     var activeTextOrigin: NSPoint?
+    var selectedElementIndex: Int?
+    var hoverEraserIndex: Int?
+    private var trackingArea: NSTrackingArea?
     
     // UI Elements
     var toolButtons: [NSButton] = []
@@ -281,6 +286,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
             for element in drawingElements {
                 drawElement(element, in: context)
             }
+            drawElementHighlights(in: context)
             
             // Draw current drawing
             if mode == .drawing {
@@ -419,6 +425,50 @@ class SelectionView: NSView, NSTextFieldDelegate {
             ]
             NSString(string: text).draw(at: point, withAttributes: attributes)
         }
+    }
+
+    private func drawElementHighlights(in context: CGContext) {
+        if let index = selectedElementIndex, index < drawingElements.count {
+            drawElementGlow(drawingElements[index], in: context, color: NSColor.systemBlue.withAlphaComponent(0.6))
+        }
+        if let index = hoverEraserIndex, index < drawingElements.count {
+            drawElementGlow(drawingElements[index], in: context, color: NSColor.systemRed.withAlphaComponent(0.6))
+        }
+    }
+
+    private func drawElementGlow(_ element: DrawingElement, in context: CGContext, color: NSColor) {
+        context.saveGState()
+        context.setShadow(offset: .zero, blur: 6, color: color.cgColor)
+        context.setStrokeColor(color.cgColor)
+        context.setLineWidth(max(2, element.lineWidth))
+        switch element.type {
+        case .pen(let points):
+            guard points.count > 1 else { break }
+            context.beginPath()
+            context.move(to: points[0])
+            for point in points.dropFirst() {
+                context.addLine(to: point)
+            }
+            context.strokePath()
+        case .line(let start, let end):
+            context.beginPath()
+            context.move(to: start)
+            context.addLine(to: end)
+            context.strokePath()
+        case .arrow(let start, let end):
+            drawArrow(from: start, to: end, in: context, color: color, lineWidth: max(2, element.lineWidth))
+        case .rectangle(let rect):
+            context.stroke(rect.insetBy(dx: -2, dy: -2))
+        case .circle(let rect):
+            context.strokeEllipse(in: rect.insetBy(dx: -2, dy: -2))
+        case .text(let text, let point):
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: fontFromElement(element),
+                .foregroundColor: color
+            ]
+            NSString(string: text).draw(at: point, withAttributes: attributes)
+        }
+        context.restoreGState()
     }
     
     private func drawCurrentDrawing(in context: CGContext) {
@@ -725,6 +775,9 @@ class SelectionView: NSView, NSTextFieldDelegate {
             if currentTool == .text, nextTool != .text {
                 finishActiveTextEntry(commit: true)
             }
+            if currentTool == .eraser, nextTool != .eraser {
+                hoverEraserIndex = nil
+            }
             currentTool = nextTool
             
             // Update button states
@@ -965,6 +1018,17 @@ class SelectionView: NSView, NSTextFieldDelegate {
                 needsDisplay = true
                 return
             }
+            if currentTool == .none {
+                if let index = drawingElements.lastIndex(where: { elementHitTest($0, point: location, tolerance: 6) }) {
+                    selectedElementIndex = index
+                    mode = .elementDragging
+                    lastDragPoint = location
+                    NSCursor.closedHand.set()
+                    needsDisplay = true
+                    return
+                }
+                selectedElementIndex = nil
+            }
             if currentTool != .none {
                 // Start drawing
                 mode = .drawing
@@ -974,6 +1038,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
                 // Start dragging
                 mode = .dragging
                 dragOffset = NSPoint(x: location.x - rect.origin.x, y: location.y - rect.origin.y)
+                NSCursor.closedHand.set()
             }
             return
         }
@@ -984,6 +1049,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
         currentPoint = clampedPoint(location)
         selectedRect = nil
         drawingElements.removeAll()
+        selectedElementIndex = nil
+        hoverEraserIndex = nil
         currentTool = .none
         activeTextField?.removeFromSuperview()
         activeTextField = nil
@@ -1032,6 +1099,14 @@ class SelectionView: NSView, NSTextFieldDelegate {
             }
             needsDisplay = true
             
+        case .elementDragging:
+            if let last = lastDragPoint, let index = selectedElementIndex {
+                let delta = NSPoint(x: location.x - last.x, y: location.y - last.y)
+                translateDrawingElement(at: index, by: delta)
+                lastDragPoint = location
+                needsDisplay = true
+            }
+            
         default:
             break
         }
@@ -1068,6 +1143,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
             
         case .dragging:
             mode = .selected
+            NSCursor.openHand.set()
             
         case .resizing:
             mode = .selected
@@ -1079,6 +1155,11 @@ class SelectionView: NSView, NSTextFieldDelegate {
             currentDrawingPoints = []
             drawingStartPoint = nil
             needsDisplay = true
+            
+        case .elementDragging:
+            mode = .selected
+            lastDragPoint = nil
+            NSCursor.openHand.set()
             
         default:
             break
@@ -1265,6 +1346,9 @@ class SelectionView: NSView, NSTextFieldDelegate {
     override func resetCursorRects() {
         super.resetCursorRects()
         guard currentTool == .none else { return }
+        if let rect = selectedRect {
+            addCursorRect(rect, cursor: .openHand)
+        }
         for (index, rect) in controlPoints.enumerated() {
             let cursor: NSCursor
             switch index {
@@ -1277,6 +1361,32 @@ class SelectionView: NSView, NSTextFieldDelegate {
             }
             addCursorRect(rect.insetBy(dx: -4, dy: -4), cursor: cursor)
         }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let options: NSTrackingArea.Options = [.activeAlways, .mouseMoved, .inVisibleRect]
+        let area = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        if currentTool == .eraser, let rect = selectedRect, rect.contains(location) {
+            hoverEraserIndex = drawingElements.lastIndex(where: { elementHitTest($0, point: location, tolerance: 6) })
+            needsDisplay = true
+        } else if hoverEraserIndex != nil {
+            hoverEraserIndex = nil
+            needsDisplay = true
+        }
+        if currentTool == .none, let rect = selectedRect, rect.contains(location), mode != .dragging, mode != .elementDragging {
+            NSCursor.openHand.set()
+        }
+        super.mouseMoved(with: event)
     }
 
     private func clearToolbar() {
@@ -1488,38 +1598,47 @@ class SelectionView: NSView, NSTextFieldDelegate {
     private func translateDrawingElements(by delta: NSPoint) {
         guard !drawingElements.isEmpty else { return }
         drawingElements = drawingElements.map { element in
-            switch element.type {
-            case .pen(let points):
-                let translated = points.map { NSPoint(x: $0.x + delta.x, y: $0.y + delta.y) }
-                return DrawingElement(type: .pen(points: translated), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
-            case .line(let start, let end):
-                let newStart = NSPoint(x: start.x + delta.x, y: start.y + delta.y)
-                let newEnd = NSPoint(x: end.x + delta.x, y: end.y + delta.y)
-                return DrawingElement(type: .line(start: newStart, end: newEnd), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
-            case .arrow(let start, let end):
-                let newStart = NSPoint(x: start.x + delta.x, y: start.y + delta.y)
-                let newEnd = NSPoint(x: end.x + delta.x, y: end.y + delta.y)
-                return DrawingElement(type: .arrow(start: newStart, end: newEnd), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
-            case .rectangle(let rect):
-                let newRect = NSRect(
-                    x: rect.origin.x + delta.x,
-                    y: rect.origin.y + delta.y,
-                    width: rect.width,
-                    height: rect.height
-                )
-                return DrawingElement(type: .rectangle(rect: newRect), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
-            case .circle(let rect):
-                let newRect = NSRect(
-                    x: rect.origin.x + delta.x,
-                    y: rect.origin.y + delta.y,
-                    width: rect.width,
-                    height: rect.height
-                )
-                return DrawingElement(type: .circle(rect: newRect), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
-            case .text(let text, let point):
-                let newPoint = NSPoint(x: point.x + delta.x, y: point.y + delta.y)
-                return DrawingElement(type: .text(text: text, point: newPoint), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
-            }
+            translateElement(element, by: delta)
+        }
+    }
+
+    private func translateDrawingElement(at index: Int, by delta: NSPoint) {
+        guard index >= 0, index < drawingElements.count else { return }
+        drawingElements[index] = translateElement(drawingElements[index], by: delta)
+    }
+
+    private func translateElement(_ element: DrawingElement, by delta: NSPoint) -> DrawingElement {
+        switch element.type {
+        case .pen(let points):
+            let translated = points.map { NSPoint(x: $0.x + delta.x, y: $0.y + delta.y) }
+            return DrawingElement(type: .pen(points: translated), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
+        case .line(let start, let end):
+            let newStart = NSPoint(x: start.x + delta.x, y: start.y + delta.y)
+            let newEnd = NSPoint(x: end.x + delta.x, y: end.y + delta.y)
+            return DrawingElement(type: .line(start: newStart, end: newEnd), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
+        case .arrow(let start, let end):
+            let newStart = NSPoint(x: start.x + delta.x, y: start.y + delta.y)
+            let newEnd = NSPoint(x: end.x + delta.x, y: end.y + delta.y)
+            return DrawingElement(type: .arrow(start: newStart, end: newEnd), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
+        case .rectangle(let rect):
+            let newRect = NSRect(
+                x: rect.origin.x + delta.x,
+                y: rect.origin.y + delta.y,
+                width: rect.width,
+                height: rect.height
+            )
+            return DrawingElement(type: .rectangle(rect: newRect), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
+        case .circle(let rect):
+            let newRect = NSRect(
+                x: rect.origin.x + delta.x,
+                y: rect.origin.y + delta.y,
+                width: rect.width,
+                height: rect.height
+            )
+            return DrawingElement(type: .circle(rect: newRect), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
+        case .text(let text, let point):
+            let newPoint = NSPoint(x: point.x + delta.x, y: point.y + delta.y)
+            return DrawingElement(type: .text(text: text, point: newPoint), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
         }
     }
 
