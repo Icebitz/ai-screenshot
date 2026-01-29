@@ -338,8 +338,6 @@ class SelectionView: NSView, NSTextFieldDelegate {
     var aiPromptView: NSVisualEffectView?
     var aiPromptField: NSTextField?
     var aiSendButton: ToolbarButton?
-    var aiSelectButton: ToolbarButton?
-    var aiLogButton: ToolbarButton?
     var aiSendSpinner: NSProgressIndicator?
     var aiIsSendingPrompt: Bool = false {
         didSet {
@@ -350,7 +348,6 @@ class SelectionView: NSView, NSTextFieldDelegate {
             }
         }
     }
-    var aiStatusLabel: NSTextField?
     var aiResultImage: CGImage?
     var aiEditRect: NSRect?
     var aiEditStartPoint: NSPoint?
@@ -364,7 +361,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
     private let buttonSpacing: CGFloat = 8
     private let intraGroupSpacing: CGFloat = 0
     private let separatorWidth: CGFloat = 1
-    private let aiPromptHeight: CGFloat = 56
+    private let aiPromptHeight: CGFloat = 36
     private let aiPromptMinWidth: CGFloat = 240
     private let aiPromptMaxWidth: CGFloat = 520
     private let aiDashPattern: [CGFloat] = [6, 4, 1, 4]
@@ -1010,7 +1007,6 @@ class SelectionView: NSView, NSTextFieldDelegate {
             if currentTool == .ai, nextTool != .ai {
                 aiEditRect = nil
                 aiIsSelectingEditRect = false
-                aiSelectButton?.isActiveAppearance = false
             }
             currentTool = nextTool
             
@@ -1424,7 +1420,6 @@ class SelectionView: NSView, NSTextFieldDelegate {
                 aiIsSelectingEditRect = false
                 aiEditStartPoint = nil
                 aiEditCurrentPoint = nil
-                aiSelectButton?.isActiveAppearance = false
                 needsDisplay = true
             }
             guard let start = aiEditStartPoint,
@@ -1637,6 +1632,10 @@ class SelectionView: NSView, NSTextFieldDelegate {
     }
 
     private func updateToolButtonStates() {
+        let hasApiKey = !SettingsStore.apiKeyValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if currentTool == .ai, !hasApiKey {
+            currentTool = .move
+        }
         toolButtons.forEach { button in
             button.state = .off
             button.isActiveAppearance = false
@@ -1647,8 +1646,17 @@ class SelectionView: NSView, NSTextFieldDelegate {
             button.state = .on
             button.isActiveAppearance = true
         }
+        if let aiIndex = toolButtonTypes.firstIndex(of: .ai),
+           aiIndex < toolButtons.count {
+            let aiButton = toolButtons[aiIndex]
+            aiButton.isEnabled = hasApiKey
+            aiButton.alphaValue = hasApiKey ? 1.0 : 0.4
+        }
         updateFontButtonState()
         updateAIPromptVisibility()
+        if currentTool == .ai, hasApiKey {
+            aiPromptField?.becomeFirstResponder()
+        }
     }
 
     private func updateFontButtonState() {
@@ -1666,14 +1674,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
             return
         }
         showAIPrompt()
-        let devMode = SettingsStore.devModeEnabled
-        aiSelectButton?.isActiveAppearance = aiIsSelectingEditRect
-        aiSelectButton?.isHidden = true
-        aiSelectButton?.isEnabled = false
         aiIsSelectingEditRect = false
         aiEditRect = nil
-        aiLogButton?.isHidden = !devMode
-        aiStatusLabel?.isHidden = !devMode || (aiStatusLabel?.stringValue.isEmpty ?? true)
         updateAIPromptPosition()
     }
 
@@ -1746,24 +1748,11 @@ class SelectionView: NSView, NSTextFieldDelegate {
         field.delegate = self
         aiPromptField = field
 
-        let selectButton = createIconButton(icon: "rectangle.dashed", x: 0, y: 4)
-        selectButton.target = self
-        selectButton.action = #selector(reselectAIRegion)
-        selectButton.groupPosition = .single
-        selectButton.isActiveAppearance = aiIsSelectingEditRect
-        aiSelectButton = selectButton
-
         let sendButton = createIconButton(icon: "paperplane.fill", x: 0, y: 4)
         sendButton.target = self
         sendButton.action = #selector(sendAIPrompt)
         sendButton.groupPosition = .single
         aiSendButton = sendButton
-
-        let logButton = createIconButton(icon: "doc.text.magnifyingglass", x: 0, y: 4)
-        logButton.target = self
-        logButton.action = #selector(revealOpenAILog)
-        logButton.groupPosition = .single
-        aiLogButton = logButton
 
         let spinner = NSProgressIndicator()
         spinner.style = .spinning
@@ -1772,19 +1761,9 @@ class SelectionView: NSView, NSTextFieldDelegate {
         spinner.isDisplayedWhenStopped = false
         aiSendSpinner = spinner
 
-        let statusLabel = NSTextField(labelWithString: "")
-        statusLabel.textColor = NSColor(calibratedWhite: 1.0, alpha: 0.7)
-        statusLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        statusLabel.alignment = .left
-        statusLabel.isHidden = true
-        aiStatusLabel = statusLabel
-
         promptView.addSubview(field)
-        promptView.addSubview(selectButton)
         promptView.addSubview(sendButton)
-        promptView.addSubview(logButton)
         promptView.addSubview(spinner)
-        promptView.addSubview(statusLabel)
         aiPromptView = promptView
         addSubview(promptView)
         updateSendState()
@@ -1795,10 +1774,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         aiPromptView = nil
         aiPromptField = nil
         aiSendButton = nil
-        aiSelectButton = nil
-        aiLogButton = nil
         aiSendSpinner = nil
-        aiStatusLabel = nil
     }
 
     private func aiPromptWidth(for rect: NSRect) -> CGFloat {
@@ -1814,7 +1790,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         var x = rect.midX - width / 2
         x = min(max(4, x), bounds.maxX - width - 4)
 
-        var y = rect.maxY - 70
+        var y = rect.maxY - 60
         if y + height > bounds.maxY - 4 {
             y = rect.maxY - height - 4
         }
@@ -1823,30 +1799,24 @@ class SelectionView: NSView, NSTextFieldDelegate {
         promptView.frame = NSRect(x: x, y: y, width: width, height: height)
 
         let padding: CGFloat = 8
-        let devMode = SettingsStore.devModeEnabled
-        let buttonSpacing: CGFloat = 6
         let buttonWidth: CGFloat = toolButtonWidth
-        let buttonCount = devMode ? 2 : 1
-        let spacingCount = max(0, buttonCount - 1)
-        let fieldWidth = max(80, width - padding * 2 - buttonWidth * CGFloat(buttonCount) - buttonSpacing * CGFloat(spacingCount))
-        let fieldHeight = min(24, height - 24)
-        let fieldY = height - fieldHeight - 8
-        let buttonsY = height - 28 - 6
-        let selectX = padding + fieldWidth + buttonSpacing
-        let usesSelectButton = !(aiSelectButton?.isHidden ?? true)
+        let fieldWidth = max(
+            80,
+            width - padding * 2 - buttonWidth
+        )
+        let fieldHeight: CGFloat = 20
+        let fieldY: CGFloat = 8
+        let buttonsY: CGFloat = 4
         aiPromptField?.frame = NSRect(x: padding, y: fieldY, width: fieldWidth, height: fieldHeight)
-        aiSelectButton?.frame = NSRect(x: selectX, y: buttonsY, width: buttonWidth, height: 28)
-        let sendX = selectX + (usesSelectButton ? (buttonWidth + buttonSpacing) : 0)
+        let sendX = padding + fieldWidth
         let sendFrame = NSRect(x: sendX, y: buttonsY, width: buttonWidth, height: 28)
         aiSendButton?.frame = sendFrame
-        aiLogButton?.frame = NSRect(x: sendFrame.maxX + buttonSpacing, y: buttonsY, width: buttonWidth, height: 28)
         aiSendSpinner?.frame = NSRect(
             x: sendFrame.midX - 8,
             y: sendFrame.midY - 8,
             width: 16,
             height: 16
         )
-        aiStatusLabel?.frame = NSRect(x: padding, y: 6, width: width - padding * 2, height: 14)
     }
 
     @objc private func sendAIPrompt() {
@@ -1896,7 +1866,6 @@ class SelectionView: NSView, NSTextFieldDelegate {
                     self?.aiIsSendingPrompt = false
                     self?.aiEditRect = nil
                     self?.aiIsSelectingEditRect = false
-                    self?.aiSelectButton?.isActiveAppearance = false
                     self?.aiPromptField?.stringValue = ""
                     self?.updateSendState()
                     self?.updateAIStatus("AI: done")
@@ -1912,20 +1881,6 @@ class SelectionView: NSView, NSTextFieldDelegate {
         }
     }
 
-    @objc private func reselectAIRegion() {
-        aiIsSelectingEditRect = true
-        aiEditRect = nil
-        aiEditStartPoint = nil
-        aiEditCurrentPoint = nil
-        aiSelectButton?.isActiveAppearance = true
-    }
-
-    @objc private func revealOpenAILog() {
-        let url = OpenAIClient.logFileURL()
-        NotificationCenter.default.post(name: .closeAllOverlays, object: nil)
-        NSWorkspace.shared.activateFileViewerSelecting([url])
-    }
-
     private func updateSendState() {
         let isSending = aiIsSendingPrompt
         let promptText = aiPromptField?.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -1933,10 +1888,6 @@ class SelectionView: NSView, NSTextFieldDelegate {
         let hasApiKey = !SettingsStore.apiKeyValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         aiSendButton?.isEnabled = !isSending && hasPrompt && hasApiKey
         aiSendButton?.alphaValue = (isSending || !hasPrompt || !hasApiKey) ? 0.4 : 1.0
-        aiSelectButton?.isEnabled = false
-        aiSelectButton?.alphaValue = 0.4
-        aiLogButton?.isEnabled = true
-        aiLogButton?.alphaValue = 1.0
         aiPromptField?.isEditable = !isSending
         aiPromptField?.isEnabled = !isSending
         if isSending {
@@ -1947,25 +1898,22 @@ class SelectionView: NSView, NSTextFieldDelegate {
     }
 
     private func updateAIStatus(_ text: String?) {
-        guard let label = aiStatusLabel else { return }
-        if !SettingsStore.devModeEnabled {
-            label.isHidden = true
-            label.stringValue = ""
-            return
-        }
-        if let text, !text.isEmpty {
-            label.stringValue = text
-            label.isHidden = false
-        } else {
-            label.stringValue = ""
-            label.isHidden = true
-        }
+        _ = text
     }
 
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if control === aiPromptField, commandSelector == #selector(insertNewline(_:)) {
             sendAIPrompt()
+            return true
+        }
+        if control === aiPromptField, commandSelector == #selector(cancelOperation(_:)) {
+            if currentTool == .ai {
+                currentTool = .none
+                updateToolButtonStates()
+                hideAIPrompt()
+                needsDisplay = true
+            }
             return true
         }
         return false
@@ -1979,7 +1927,14 @@ class SelectionView: NSView, NSTextFieldDelegate {
     
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 { // ESC key
-            closeOverlay()
+            if currentTool == .ai {
+                currentTool = .none
+                updateToolButtonStates()
+                hideAIPrompt()
+                needsDisplay = true
+            } else {
+                closeOverlay()
+            }
         } else if event.modifierFlags.contains(.command),
                   event.charactersIgnoringModifiers?.lowercased() == "z" {
             undoLastDrawing()

@@ -10,7 +10,6 @@ struct SettingsView: View {
     @State private var hotKeyControl: Bool = false
     @State private var apiKey: String = ""
     @State private var aiModel: String = SettingsStore.defaultAIModel
-    @State private var devModeEnabled: Bool = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -33,8 +32,6 @@ struct SettingsView: View {
                         .frame(width: 200)
                 }
             }
-
-            Toggle("Dev mode", isOn: $devModeEnabled)
 
             HStack {
                 Spacer()
@@ -131,7 +128,6 @@ struct SettingsView: View {
         hotKeyControl = defaults.bool(forKey: SettingsStore.Key.hotKeyControl)
         apiKey = defaults.string(forKey: SettingsStore.Key.apiKey) ?? ""
         aiModel = defaults.string(forKey: SettingsStore.Key.aiModel) ?? SettingsStore.defaultAIModel
-        devModeEnabled = defaults.bool(forKey: SettingsStore.Key.devModeEnabled)
     }
 
     private func hasChanges() -> Bool {
@@ -143,7 +139,6 @@ struct SettingsView: View {
         if defaults.bool(forKey: SettingsStore.Key.hotKeyControl) != hotKeyControl { return true }
         if (defaults.string(forKey: SettingsStore.Key.apiKey) ?? "") != apiKey { return true }
         if (defaults.string(forKey: SettingsStore.Key.aiModel) ?? SettingsStore.defaultAIModel) != aiModel { return true }
-        if defaults.bool(forKey: SettingsStore.Key.devModeEnabled) != devModeEnabled { return true }
         return false
     }
 
@@ -156,7 +151,6 @@ struct SettingsView: View {
         defaults.set(hotKeyControl, forKey: SettingsStore.Key.hotKeyControl)
         defaults.set(apiKey, forKey: SettingsStore.Key.apiKey)
         defaults.set(aiModel, forKey: SettingsStore.Key.aiModel)
-        defaults.set(devModeEnabled, forKey: SettingsStore.Key.devModeEnabled)
         NotificationCenter.default.post(name: .hotkeyPreferencesDidChange, object: nil)
         loadFromDefaults()
         dismiss()
