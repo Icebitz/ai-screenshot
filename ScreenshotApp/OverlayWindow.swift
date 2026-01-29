@@ -1668,39 +1668,20 @@ class SelectionView: NSView, NSTextFieldDelegate {
         showAIPrompt()
         let devMode = SettingsStore.devModeEnabled
         aiSelectButton?.isActiveAppearance = aiIsSelectingEditRect
-        aiSelectButton?.isHidden = false
+        aiSelectButton?.isHidden = true
+        aiSelectButton?.isEnabled = false
+        aiIsSelectingEditRect = false
+        aiEditRect = nil
         aiLogButton?.isHidden = !devMode
         aiStatusLabel?.isHidden = !devMode || (aiStatusLabel?.stringValue.isEmpty ?? true)
         updateAIPromptPosition()
     }
 
-    private func aiRegionRectInSelectedImage(selectedRect: NSRect, regionRect: NSRect) -> CGRect {
-        let baseImageRect = imageRectForViewRect(selectedRect)
-        let regionImageRect = imageRectForViewRect(regionRect)
-        let relative = CGRect(
-            x: regionImageRect.minX - baseImageRect.minX,
-            y: regionImageRect.minY - baseImageRect.minY,
-            width: regionImageRect.width,
-            height: regionImageRect.height
-        )
-        let boundsRect = CGRect(x: 0, y: 0, width: baseImageRect.width, height: baseImageRect.height)
-        return relative.intersection(boundsRect)
-    }
-
-    private func buildAIPrompt(userText: String, selectedRect: NSRect) -> String {
-        let regionRect = aiEditRect ?? selectedRect
-        let relativeRect = aiRegionRectInSelectedImage(selectedRect: selectedRect, regionRect: regionRect)
-        let x = Int(relativeRect.origin.x.rounded())
-        let y = Int(relativeRect.origin.y.rounded())
-        let w = Int(relativeRect.width.rounded())
-        let h = Int(relativeRect.height.rounded())
-
+    private func buildAIPrompt(userText: String) -> String {
         let prompt = "You are editing an image.\n\nTask:\n\(userText)"
-        let constraints = "STRICT CONSTRAINTS:\n- Modify ONLY the pixels inside the specified region.\n- Do NOT change anything outside this region.\n- Maintain original style, lighting, and perspective.\n- Blend edges naturally.\n- Keep the original image as close as possible.\n- Keep the ratio of the original image."
-        let regionText = "Target region (pixels, origin = top-left of cropped image):\nx=\(x), y=\(y), width=\(w), height=\(h)"
-        let suffix = "If the change cannot be done entirely inside this region, make no changes."
+        let constraints = "STRICT CONSTRAINTS:\n- Maintain original style, lighting, and perspective.\n- Blend edits naturally.\n- Keep the original image as close as possible."
 
-        return "\(prompt)\n\n\(constraints)\n\n\(regionText)\n\n\(suffix)"
+        return "\(prompt)\n\n\(constraints)"
     }
 
     private func pngData(for image: CGImage) -> Data? {
@@ -1711,6 +1692,32 @@ class SelectionView: NSView, NSTextFieldDelegate {
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else { return nil }
         return data as Data
+    }
+
+    private func maskPNGData(for selectedRect: NSRect) -> Data? {
+        let baseImageRect = imageRectForViewRect(selectedRect)
+        let width = Int(baseImageRect.width)
+        let height = Int(baseImageRect.height)
+        guard width > 0, height > 0 else { return nil }
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+
+        context.setFillColor(NSColor.white.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+
+        guard let maskImage = context.makeImage() else { return nil }
+        return pngData(for: maskImage)
     }
 
     private func showAIPrompt() {
@@ -1819,16 +1826,17 @@ class SelectionView: NSView, NSTextFieldDelegate {
         let devMode = SettingsStore.devModeEnabled
         let buttonSpacing: CGFloat = 6
         let buttonWidth: CGFloat = toolButtonWidth
-        let buttonCount = devMode ? 3 : 2
+        let buttonCount = devMode ? 2 : 1
         let spacingCount = max(0, buttonCount - 1)
         let fieldWidth = max(80, width - padding * 2 - buttonWidth * CGFloat(buttonCount) - buttonSpacing * CGFloat(spacingCount))
         let fieldHeight = min(24, height - 24)
         let fieldY = height - fieldHeight - 8
         let buttonsY = height - 28 - 6
         let selectX = padding + fieldWidth + buttonSpacing
+        let usesSelectButton = !(aiSelectButton?.isHidden ?? true)
         aiPromptField?.frame = NSRect(x: padding, y: fieldY, width: fieldWidth, height: fieldHeight)
         aiSelectButton?.frame = NSRect(x: selectX, y: buttonsY, width: buttonWidth, height: 28)
-        let sendX = selectX + buttonWidth + buttonSpacing
+        let sendX = selectX + (usesSelectButton ? (buttonWidth + buttonSpacing) : 0)
         let sendFrame = NSRect(x: sendX, y: buttonsY, width: buttonWidth, height: 28)
         aiSendButton?.frame = sendFrame
         aiLogButton?.frame = NSRect(x: sendFrame.maxX + buttonSpacing, y: buttonsY, width: buttonWidth, height: 28)
@@ -1858,16 +1866,20 @@ class SelectionView: NSView, NSTextFieldDelegate {
             updateSendState()
             return
         }
-        let prompt = buildAIPrompt(userText: text, selectedRect: selectedRect)
+        let prompt = buildAIPrompt(userText: text)
         let finalImage = renderFinalImage(for: selectedRect)
         guard let imageData = pngData(for: finalImage) else {
             updateAIStatus("AI: failed to encode image")
             updateSendState()
             return
         }
+        guard let maskData = maskPNGData(for: selectedRect) else {
+            updateAIStatus("AI: failed to encode mask")
+            updateSendState()
+            return
+        }
         aiIsSendingPrompt = true
         updateSendState()
-        field.stringValue = ""
         updateAIStatus("AI: processing...")
         Task { [weak self] in
             do {
@@ -1876,7 +1888,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
                     apiKey: apiKey,
                     model: model,
                     prompt: prompt,
-                    imageData: imageData
+                    imageData: imageData,
+                    maskData: maskData
                 )
                 await MainActor.run {
                     self?.aiResultImage = resultImage
@@ -1884,6 +1897,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
                     self?.aiEditRect = nil
                     self?.aiIsSelectingEditRect = false
                     self?.aiSelectButton?.isActiveAppearance = false
+                    self?.aiPromptField?.stringValue = ""
                     self?.updateSendState()
                     self?.updateAIStatus("AI: done")
                     self?.needsDisplay = true
@@ -1919,10 +1933,12 @@ class SelectionView: NSView, NSTextFieldDelegate {
         let hasApiKey = !SettingsStore.apiKeyValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         aiSendButton?.isEnabled = !isSending && hasPrompt && hasApiKey
         aiSendButton?.alphaValue = (isSending || !hasPrompt || !hasApiKey) ? 0.4 : 1.0
-        aiSelectButton?.isEnabled = !isSending
-        aiSelectButton?.alphaValue = isSending ? 0.4 : 1.0
+        aiSelectButton?.isEnabled = false
+        aiSelectButton?.alphaValue = 0.4
         aiLogButton?.isEnabled = true
         aiLogButton?.alphaValue = 1.0
+        aiPromptField?.isEditable = !isSending
+        aiPromptField?.isEnabled = !isSending
         if isSending {
             aiSendSpinner?.startAnimation(nil)
         } else {

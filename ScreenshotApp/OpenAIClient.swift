@@ -13,9 +13,9 @@ struct OpenAIClient {
     private static let logFilename = "openai.log"
     private static let requestTimeout: TimeInterval = 120
 
-    static func editImage(apiKey: String, model: String, prompt: String, imageData: Data) async throws -> CGImage {
+    static func editImage(apiKey: String, model: String, prompt: String, imageData: Data, maskData: Data) async throws -> CGImage {
         let resolvedModel = model.isEmpty ? SettingsStore.defaultAIModel : model
-        writeLog("request started (model=\(resolvedModel) bytes=\(imageData.count))")
+        writeLog("request started (model=\(resolvedModel) bytes=\(imageData.count) maskBytes=\(maskData.count))")
         let boundary = "Boundary-\(UUID().uuidString)"
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
@@ -41,6 +41,12 @@ struct OpenAIClient {
         append("Content-Disposition: form-data; name=\"image\"; filename=\"selection.png\"\r\n")
         append("Content-Type: image/png\r\n\r\n")
         body.append(imageData)
+        append("\r\n")
+
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"mask\"; filename=\"mask.png\"\r\n")
+        append("Content-Type: image/png\r\n\r\n")
+        body.append(maskData)
         append("\r\n")
 
         append("--\(boundary)--\r\n")

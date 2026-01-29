@@ -1,6 +1,7 @@
 import SwiftUI
 import ScreenCaptureKit
 import Carbon
+import ServiceManagement
 
 @main
 struct ScreenshotApp: App {
@@ -24,6 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         ProcessInfo.processInfo.disableAutomaticTermination("Keep menu bar app alive")
         SettingsStore.registerDefaults()
+        registerLaunchAtLogin()
 
         if let appIcon = NSImage(named: "AppIcon") {
             NSApp.applicationIconImage = appIcon
@@ -45,6 +47,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: .hotkeyPreferencesDidChange,
             object: nil
         )
+    }
+
+    private func registerLaunchAtLogin() {
+        if #available(macOS 13.0, *) {
+            do {
+                try SMAppService.mainApp.register()
+            } catch {
+                print("Failed to register launch at login: \(error)")
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
