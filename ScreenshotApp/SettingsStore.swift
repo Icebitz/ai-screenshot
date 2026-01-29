@@ -46,4 +46,8 @@ enum SettingsStore {
               !path.isEmpty else { return nil }
         return URL(fileURLWithPath: path, isDirectory: true)
     }
+
+    static var apiKeyValue: String {
+        UserDefaults.standard.string(forKey: Key.apiKey) ?? ""
+    }
 }

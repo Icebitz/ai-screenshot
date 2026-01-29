@@ -315,6 +315,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
     var currentFontName: String = NSFont.systemFont(ofSize: 16).fontName
     var activeTextField: NSTextField?
     var activeTextOrigin: NSPoint?
+    var isFinishingTextEntry: Bool = false
     var selectedElementIndex: Int?
     var hoverEraserIndex: Int?
     private var trackingArea: NSTrackingArea?
@@ -338,8 +339,11 @@ class SelectionView: NSView, NSTextFieldDelegate {
     var aiPromptField: NSTextField?
     var aiSendButton: ToolbarButton?
     var aiSelectButton: ToolbarButton?
+    var aiLogButton: ToolbarButton?
     var aiSendSpinner: NSProgressIndicator?
     var aiIsSendingPrompt: Bool = false
+    var aiStatusLabel: NSTextField?
+    var aiResultImage: CGImage?
     var aiEditRect: NSRect?
     var aiEditStartPoint: NSPoint?
     var aiEditCurrentPoint: NSPoint?
@@ -352,7 +356,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
     private let buttonSpacing: CGFloat = 8
     private let intraGroupSpacing: CGFloat = 0
     private let separatorWidth: CGFloat = 1
-    private let aiPromptHeight: CGFloat = 40
+    private let aiPromptHeight: CGFloat = 56
     private let aiPromptMinWidth: CGFloat = 240
     private let aiPromptMaxWidth: CGFloat = 520
     private let fontChoices: [(label: String, name: String)] = [
@@ -452,7 +456,9 @@ class SelectionView: NSView, NSTextFieldDelegate {
         let imageRect = imageRectForViewRect(rect)
         
         // Draw the screen image in the selection area
-        if let croppedImage = screenImage.cropping(to: imageRect) {
+        if let aiResultImage {
+            context.draw(aiResultImage, in: rect)
+        } else if let croppedImage = screenImage.cropping(to: imageRect) {
             context.draw(croppedImage, in: rect)
         }
         // Draw selection border
@@ -1243,6 +1249,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
                 }
                 currentTool = .none
                 updateToolButtonStates()
+                NSCursor.arrow.set()
+                window?.invalidateCursorRects(for: self)
                 needsDisplay = true
                 return
             }
@@ -1284,6 +1292,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         activeTextField?.removeFromSuperview()
         activeTextField = nil
         activeTextOrigin = nil
+        aiResultImage = nil
         aiEditRect = nil
         aiIsSelectingEditRect = false
         
@@ -1389,6 +1398,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
             if clampedRect.width > 10 && clampedRect.height > 10 {
                 selectedRect = clampedRect
                 aiEditRect = nil
+                aiResultImage = nil
                 mode = .selected
                 currentTool = .move
                 updateControlPoints()
@@ -1603,6 +1613,40 @@ class SelectionView: NSView, NSTextFieldDelegate {
         updateAIPromptPosition()
     }
 
+    private func aiRegionRectInSelectedImage(selectedRect: NSRect, regionRect: NSRect) -> CGRect {
+        let baseImageRect = imageRectForViewRect(selectedRect)
+        let regionImageRect = imageRectForViewRect(regionRect)
+        let relative = CGRect(
+            x: regionImageRect.minX - baseImageRect.minX,
+            y: regionImageRect.minY - baseImageRect.minY,
+            width: regionImageRect.width,
+            height: regionImageRect.height
+        )
+        let boundsRect = CGRect(x: 0, y: 0, width: baseImageRect.width, height: baseImageRect.height)
+        return relative.intersection(boundsRect)
+    }
+
+    private func buildAIPrompt(userText: String, selectedRect: NSRect) -> String {
+        let regionRect = aiEditRect ?? selectedRect
+        let relativeRect = aiRegionRectInSelectedImage(selectedRect: selectedRect, regionRect: regionRect)
+        let x = Int(relativeRect.origin.x.rounded())
+        let y = Int(relativeRect.origin.y.rounded())
+        let w = Int(relativeRect.width.rounded())
+        let h = Int(relativeRect.height.rounded())
+        let regionText = "Region: x=\(x), y=\(y), w=\(w), h=\(h) (px, origin top-left of cropped image)"
+        return "\(userText)\n\n\(regionText)"
+    }
+
+    private func pngData(for image: CGImage) -> Data? {
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return data as Data
+    }
+
     private func showAIPrompt() {
         if aiPromptView != nil { return }
         let promptView = NSVisualEffectView()
@@ -1642,6 +1686,12 @@ class SelectionView: NSView, NSTextFieldDelegate {
         sendButton.groupPosition = .single
         aiSendButton = sendButton
 
+        let logButton = createIconButton(icon: "doc.text.magnifyingglass", x: 0, y: 4)
+        logButton.target = self
+        logButton.action = #selector(revealOpenAILog)
+        logButton.groupPosition = .single
+        aiLogButton = logButton
+
         let spinner = NSProgressIndicator()
         spinner.style = .spinning
         spinner.controlSize = .small
@@ -1649,10 +1699,19 @@ class SelectionView: NSView, NSTextFieldDelegate {
         spinner.isDisplayedWhenStopped = false
         aiSendSpinner = spinner
 
+        let statusLabel = NSTextField(labelWithString: "")
+        statusLabel.textColor = NSColor(calibratedWhite: 1.0, alpha: 0.7)
+        statusLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        statusLabel.alignment = .left
+        statusLabel.isHidden = true
+        aiStatusLabel = statusLabel
+
         promptView.addSubview(field)
         promptView.addSubview(selectButton)
         promptView.addSubview(sendButton)
+        promptView.addSubview(logButton)
         promptView.addSubview(spinner)
+        promptView.addSubview(statusLabel)
         aiPromptView = promptView
         addSubview(promptView)
         updateSendState()
@@ -1664,7 +1723,9 @@ class SelectionView: NSView, NSTextFieldDelegate {
         aiPromptField = nil
         aiSendButton = nil
         aiSelectButton = nil
+        aiLogButton = nil
         aiSendSpinner = nil
+        aiStatusLabel = nil
     }
 
     private func aiPromptWidth(for rect: NSRect) -> CGFloat {
@@ -1691,34 +1752,71 @@ class SelectionView: NSView, NSTextFieldDelegate {
         let padding: CGFloat = 8
         let buttonSpacing: CGFloat = 6
         let buttonWidth: CGFloat = toolButtonWidth
-        let fieldWidth = max(80, width - padding * 2 - buttonWidth * 2 - buttonSpacing * 2)
-        let fieldHeight = min(24, height - 20)
-        let fieldY = (height - fieldHeight) / 2
-        let buttonsY = (height - 28) / 2
+        let fieldWidth = max(80, width - padding * 2 - buttonWidth * 3 - buttonSpacing * 3)
+        let fieldHeight = min(24, height - 24)
+        let fieldY = height - fieldHeight - 8
+        let buttonsY = height - 28 - 6
         let selectX = padding + fieldWidth + buttonSpacing
         aiPromptField?.frame = NSRect(x: padding, y: fieldY, width: fieldWidth, height: fieldHeight)
         aiSelectButton?.frame = NSRect(x: selectX, y: buttonsY, width: buttonWidth, height: 28)
         let sendFrame = NSRect(x: selectX + buttonWidth + buttonSpacing, y: buttonsY, width: buttonWidth, height: 28)
         aiSendButton?.frame = sendFrame
+        aiLogButton?.frame = NSRect(x: sendFrame.maxX + buttonSpacing, y: buttonsY, width: buttonWidth, height: 28)
         aiSendSpinner?.frame = NSRect(
             x: sendFrame.midX - 8,
             y: sendFrame.midY - 8,
             width: 16,
             height: 16
         )
+        aiStatusLabel?.frame = NSRect(x: padding, y: 6, width: width - padding * 2, height: 14)
     }
 
     @objc private func sendAIPrompt() {
-        guard let field = aiPromptField else { return }
+        guard let field = aiPromptField, let selectedRect = selectedRect else {
+            updateAIStatus("AI: select a region first")
+            return
+        }
         let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiKey = SettingsStore.apiKeyValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
+            updateAIStatus("AI: enter a prompt")
+            updateSendState()
+            return
+        }
+        guard !apiKey.isEmpty else {
+            updateAIStatus("AI: add API key in Settings")
+            updateSendState()
+            return
+        }
+        let prompt = buildAIPrompt(userText: text, selectedRect: selectedRect)
+        let finalImage = renderFinalImage(for: selectedRect)
+        guard let imageData = pngData(for: finalImage) else {
+            updateAIStatus("AI: failed to encode image")
             updateSendState()
             return
         }
         aiIsSendingPrompt = true
         updateSendState()
         field.stringValue = ""
-        showNotification(message: "AI prompt queued")
+        updateAIStatus("AI: sending request...")
+        Task { [weak self] in
+            do {
+                let resultImage = try await OpenAIClient.editImage(apiKey: apiKey, prompt: prompt, imageData: imageData)
+                await MainActor.run {
+                    self?.aiResultImage = resultImage
+                    self?.aiIsSendingPrompt = false
+                    self?.updateSendState()
+                    self?.updateAIStatus("AI: done")
+                    self?.needsDisplay = true
+                }
+            } catch {
+                await MainActor.run {
+                    self?.aiIsSendingPrompt = false
+                    self?.updateSendState()
+                    self?.updateAIStatus("AI: request failed")
+                }
+            }
+        }
     }
 
     @objc private func reselectAIRegion() {
@@ -1729,18 +1827,38 @@ class SelectionView: NSView, NSTextFieldDelegate {
         aiSelectButton?.isActiveAppearance = true
     }
 
+    @objc private func revealOpenAILog() {
+        let url = OpenAIClient.logFileURL()
+        NotificationCenter.default.post(name: .closeAllOverlays, object: nil)
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
     private func updateSendState() {
         let isSending = aiIsSendingPrompt
         let promptText = aiPromptField?.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasPrompt = !promptText.isEmpty
-        aiSendButton?.isEnabled = !isSending && hasPrompt
-        aiSendButton?.alphaValue = (isSending || !hasPrompt) ? 0.4 : 1.0
+        let hasApiKey = !SettingsStore.apiKeyValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        aiSendButton?.isEnabled = !isSending && hasPrompt && hasApiKey
+        aiSendButton?.alphaValue = (isSending || !hasPrompt || !hasApiKey) ? 0.4 : 1.0
         aiSelectButton?.isEnabled = !isSending
         aiSelectButton?.alphaValue = isSending ? 0.4 : 1.0
+        aiLogButton?.isEnabled = true
+        aiLogButton?.alphaValue = 1.0
         if isSending {
             aiSendSpinner?.startAnimation(nil)
         } else {
             aiSendSpinner?.stopAnimation(nil)
+        }
+    }
+
+    private func updateAIStatus(_ text: String?) {
+        guard let label = aiStatusLabel else { return }
+        if let text, !text.isEmpty {
+            label.stringValue = text
+            label.isHidden = false
+        } else {
+            label.stringValue = ""
+            label.isHidden = true
         }
     }
 
@@ -2584,12 +2702,27 @@ class SelectionView: NSView, NSTextFieldDelegate {
     }
 
     private func finishActiveTextEntry(commit: Bool) {
-        guard let field = activeTextField else { return }
+        guard let field = activeTextField, !isFinishingTextEntry else { return }
+        isFinishingTextEntry = true
+        defer { isFinishingTextEntry = false }
         if commit {
             let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let origin = activeTextOrigin, !text.isEmpty {
-        let element = DrawingElement(type: .text(text: text, point: origin), strokeColor: currentStrokeColor, fillColor: nil, lineWidth: currentLineWidth, fontSize: currentFontSize, fontName: currentFontName)
-        drawingElements.append(element)
+            if !text.isEmpty {
+                let font = field.font ?? currentTextFont()
+                let titleRect = field.cell?.titleRect(forBounds: field.bounds) ?? field.bounds
+                let origin = NSPoint(
+                    x: field.frame.minX + titleRect.minX,
+                    y: field.frame.minY + titleRect.minY + font.ascender
+                )
+                let element = DrawingElement(
+                    type: .text(text: text, point: origin),
+                    strokeColor: currentStrokeColor,
+                    fillColor: nil,
+                    lineWidth: currentLineWidth,
+                    fontSize: currentFontSize,
+                    fontName: currentFontName
+                )
+                drawingElements.append(element)
             }
         }
         field.removeFromSuperview()
