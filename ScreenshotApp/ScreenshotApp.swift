@@ -84,7 +84,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "camera.fill", accessibilityDescription: "Screenshot")
+            // button.image = NSImage(systemSymbolName: "camera.fill", accessibilityDescription: "Screenshot")
+            let image = NSImage(named: "MenuIcon")
+            image?.isTemplate = true
+            button.image = image
         }
         
         let menu = NSMenu()
