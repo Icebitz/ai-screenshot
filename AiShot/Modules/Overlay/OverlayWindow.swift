@@ -71,13 +71,13 @@ class SelectionView: NSView, NSTextFieldDelegate {
     var aiIsSelectingEditRect: Bool = false
     var activeColorTarget: ColorTarget = .stroke
 
-    let toolButtonWidth: CGFloat = 28
+    let toolButtonWidth: CGFloat = 32
     let actionButtonWidth: CGFloat = 28
     let toolbarPadding: CGFloat = 10
     let buttonSpacing: CGFloat = 8
     let intraGroupSpacing: CGFloat = 0
     let separatorWidth: CGFloat = 1
-    let aiPromptHeight: CGFloat = 36
+    let aiPromptHeight: CGFloat = 40
     let aiPromptMinWidth: CGFloat = 240
     let aiPromptMaxWidth: CGFloat = 520
     let aiDashPattern: [CGFloat] = [6, 4, 1, 4]

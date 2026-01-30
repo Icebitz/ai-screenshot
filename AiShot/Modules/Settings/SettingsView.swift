@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var hotKeyShift: Bool = true
     @State private var hotKeyOption: Bool = false
     @State private var hotKeyControl: Bool = false
+    @State private var captureCursor: Bool = false
     @State private var apiKey: String = ""
     @State private var aiModel: String = SettingsStore.defaultAIModel
     @Environment(\.dismiss) private var dismiss
@@ -15,14 +16,21 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section(header: Text("Hotkey")) {
-                HotKeyRecorder(
-                    displayText: currentHotKeyText(),
-                    onKeyChange: applyHotKey
-                )
-                .frame(height: 28)
+                HStack(alignment: .center, spacing: 12) {
+                    HotKeyRecorder(
+                        displayText: currentHotKeyText(),
+                        onKeyChange: applyHotKey
+                    )
+                    .frame(height: 28)
+
+                    Spacer()
+
+                    Toggle("Capture Cursor", isOn: $captureCursor)
+                        .toggleStyle(.switch)
+                }
             }
 
-            Section(header: Text("AI")) {
+            Section(header: Text("OpenAI API Key")) {
                 TextField("", text: $apiKey, prompt: Text("sk-proj-..."))
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                 HStack {
@@ -126,6 +134,7 @@ struct SettingsView: View {
         hotKeyShift = defaults.bool(forKey: SettingsStore.Key.hotKeyShift)
         hotKeyOption = defaults.bool(forKey: SettingsStore.Key.hotKeyOption)
         hotKeyControl = defaults.bool(forKey: SettingsStore.Key.hotKeyControl)
+        captureCursor = defaults.bool(forKey: SettingsStore.Key.captureCursor)
         apiKey = defaults.string(forKey: SettingsStore.Key.apiKey) ?? ""
         aiModel = defaults.string(forKey: SettingsStore.Key.aiModel) ?? SettingsStore.defaultAIModel
     }
@@ -137,6 +146,7 @@ struct SettingsView: View {
         if defaults.bool(forKey: SettingsStore.Key.hotKeyShift) != hotKeyShift { return true }
         if defaults.bool(forKey: SettingsStore.Key.hotKeyOption) != hotKeyOption { return true }
         if defaults.bool(forKey: SettingsStore.Key.hotKeyControl) != hotKeyControl { return true }
+        if defaults.bool(forKey: SettingsStore.Key.captureCursor) != captureCursor { return true }
         if (defaults.string(forKey: SettingsStore.Key.apiKey) ?? "") != apiKey { return true }
         if (defaults.string(forKey: SettingsStore.Key.aiModel) ?? SettingsStore.defaultAIModel) != aiModel { return true }
         return false
@@ -149,6 +159,7 @@ struct SettingsView: View {
         defaults.set(hotKeyShift, forKey: SettingsStore.Key.hotKeyShift)
         defaults.set(hotKeyOption, forKey: SettingsStore.Key.hotKeyOption)
         defaults.set(hotKeyControl, forKey: SettingsStore.Key.hotKeyControl)
+        defaults.set(captureCursor, forKey: SettingsStore.Key.captureCursor)
         defaults.set(apiKey, forKey: SettingsStore.Key.apiKey)
         defaults.set(aiModel, forKey: SettingsStore.Key.aiModel)
         NotificationCenter.default.post(name: .hotkeyPreferencesDidChange, object: nil)

@@ -5,7 +5,7 @@ extension SelectionView {
         clearToolbar()
 
         // Place toolbar centered on the bottom edge of the selection
-        let toolbarHeight: CGFloat = 36
+        let toolbarHeight: CGFloat = 40
         var toolbarY = rect.minY - toolbarHeight / 2
         toolbarY = min(max(4, toolbarY), bounds.maxY - toolbarHeight - 4)
 
@@ -75,7 +75,7 @@ extension SelectionView {
         
         xOffset += buttonSpacing
 
-        let strokeButton = ColorSwatchButton(frame: NSRect(x: xOffset, y: 4, width: toolButtonWidth, height: 28))
+        let strokeButton = ColorSwatchButton(frame: NSRect(x: xOffset, y: 4, width: toolButtonWidth, height: 32))
         strokeButton.title = ""
         strokeButton.image = nil
         strokeButton.isBordered = false
@@ -88,7 +88,7 @@ extension SelectionView {
         toolbar.addSubview(strokeButton)
         xOffset += toolButtonWidth + intraGroupSpacing
 
-        let fillButton = ColorSwatchButton(frame: NSRect(x: xOffset, y: 4, width: toolButtonWidth, height: 28))
+        let fillButton = ColorSwatchButton(frame: NSRect(x: xOffset, y: 4, width: toolButtonWidth, height: 32))
         fillButton.title = ""
         fillButton.image = nil
         fillButton.isBordered = false
@@ -124,7 +124,7 @@ extension SelectionView {
     func updateToolbar() {
         guard let rect = selectedRect else { return }
         
-        let toolbarHeight: CGFloat = 36
+        let toolbarHeight: CGFloat = 40
         var toolbarY = rect.minY - toolbarHeight / 2
         toolbarY = min(max(4, toolbarY), bounds.maxY - toolbarHeight - 4)
 
@@ -170,7 +170,7 @@ extension SelectionView {
     }
 
     private func createToolButton(icon: String, tool: DrawingTool, x: CGFloat, y: CGFloat) -> ToolbarButton {
-        let button = ToolbarButton(frame: NSRect(x: x, y: y, width: toolButtonWidth, height: 28))
+        let button = ToolbarButton(frame: NSRect(x: x, y: y, width: toolButtonWidth, height: 32))
         if let customImage = NSImage(named: icon) {
             button.image = customImage
             button.image?.isTemplate = true
@@ -192,7 +192,7 @@ extension SelectionView {
     }
 
     func createIconButton(icon: String, x: CGFloat, y: CGFloat) -> ToolbarButton {
-        let button = ToolbarButton(frame: NSRect(x: x, y: y, width: toolButtonWidth, height: 28))
+        let button = ToolbarButton(frame: NSRect(x: x, y: y, width: toolButtonWidth, height: 32))
         if let customImage = NSImage(named: icon) {
             button.image = customImage
             button.image?.isTemplate = true
@@ -257,7 +257,7 @@ extension SelectionView {
         var x = rect.midX - width / 2
         if x + width > bounds.maxX { x = bounds.maxX - width }
         if x < 0 { x = 0 }
-        return NSRect(x: x, y: y, width: width, height: 36)
+        return NSRect(x: x, y: y, width: width, height: 40)
     }
 
     private func toolbarContentWidth() -> CGFloat {

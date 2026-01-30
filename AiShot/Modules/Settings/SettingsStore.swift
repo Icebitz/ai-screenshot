@@ -12,6 +12,7 @@ enum SettingsStore {
         static let hotKeyShift = "hotkey.modifier.shift"
         static let hotKeyOption = "hotkey.modifier.option"
         static let hotKeyControl = "hotkey.modifier.control"
+        static let captureCursor = "capture.cursor"
         static let saveDirectoryPath = "save.directory.path"
         static let apiKey = "ai.api.key"
         static let aiModel = "ai.model"
@@ -31,6 +32,7 @@ enum SettingsStore {
             Key.hotKeyShift: true,
             Key.hotKeyOption: false,
             Key.hotKeyControl: false,
+            Key.captureCursor: false,
             Key.aiModel: defaultAIModel
         ])
     }
@@ -52,6 +54,10 @@ enum SettingsStore {
         guard let path = UserDefaults.standard.string(forKey: Key.saveDirectoryPath),
               !path.isEmpty else { return nil }
         return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    static var captureCursorValue: Bool {
+        UserDefaults.standard.bool(forKey: Key.captureCursor)
     }
 
     static var apiKeyValue: String {

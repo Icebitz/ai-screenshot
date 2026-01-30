@@ -1,35 +1,26 @@
-# AiShot (Lightshot Clone)
+# AiShot
 
-A macOS screenshot application built with Swift, similar to Lightshot, with region selection, drawing tools, and quick sharing capabilities.
+A macOS screenshot tool built with Swift that focuses on AI-powered region edits alongside fast capture and annotation.
 
 ## Features
 
-- **Menu Bar Only**: Runs from the menu bar without showing a dock icon
-- **Region Selection**: Click and drag to select any region of the screen
-- **Drawing Tools**:
-  - Pen (freehand drawing)
-  - Line
-  - Arrow
-  - Rectangle
-  - Circle
-- **AI Edit**: Prompt-based edits for the selected region (requires API key)
-- **Editing Controls**:
-  - Move the captured region
-  - Resize using corner control points
-  - Draw annotations on the screenshot
-- **Quick Actions**:
-  - Copy to clipboard
-  - Save to file
-  - Close/cancel
-- **Hotkey**: Global shortcut to trigger capture (customizable in Settings)
-- **Keyboard Shortcuts**:
-  - ESC to cancel selection or close editor
+- Menu bar app
+- Fast region capture
+- AI edit for a selected area (API key required)
+- Simple drawing tools
+- Copy, save, or cancel quickly
+- Custom hotkey
 
 ## Requirements
 
 - macOS 26.0 or later
 - Xcode 16.0 or later
 - Screen Recording permission (requested on first run)
+
+## Version
+
+- App version: 0.1.0
+- Build: 1
 
 ## Setup Instructions
 
@@ -122,19 +113,17 @@ The toolbar appears below the selected region with:
 ```
 AiShot/
 ├── AiShot.xcodeproj
-├── Info.plist
-├── AiShot.entitlements
 ├── Assets.xcassets
-└── Modules/
-    ├── App/
-    │   └── AiShot.swift           # Main app entry point, menu bar setup
-    ├── Capture/
-    │   └── ScreenshotManager.swift # Screen capture logic
-    ├── Overlay/                  # Selection UI, drawing tools, AI prompt
-    ├── Settings/                 # Hotkey + AI settings
-    └── AI/
-        └── OpenAIClient.swift    # Image edit API calls
+└── Modules/ (app, capture, overlay, settings, AI)
 ```
+
+### Modules
+
+- App: app entry and menu bar setup
+- Capture: screen capture pipeline
+- Overlay: selection UI, tools, and AI prompt
+- Settings: hotkey and AI preferences
+- AI: OpenAI image edit client
 
 ## Architecture
 
@@ -182,16 +171,11 @@ AiShot/
 
 ## Future Enhancements
 
-Possible additions:
-- Text tool for adding labels
-- Blur/pixelate tool for privacy
-- Color picker for drawing tools
-- Line width adjustment
-- Undo/redo functionality
-- Upload to cloud services
-- Smarter AI mask editing controls
-- Image cropping tool
-- Magnifying glass during selection
+- Better AI mask controls
+- More AI models and presets
+- Privacy tools (blur/pixelate)
+- Manual editing tools
+- Share to cloud
 
 ## License
 

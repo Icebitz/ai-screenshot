@@ -44,6 +44,7 @@ class ScreenshotManager {
                 configuration.width = display.width
                 configuration.height = display.height
                 configuration.pixelFormat = kCVPixelFormatType_32BGRA
+                configuration.showsCursor = SettingsStore.captureCursorValue
                 
                 let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
                 

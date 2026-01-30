@@ -133,7 +133,7 @@ extension SelectionView {
         let buttonsY: CGFloat = 4
         aiPromptField?.frame = NSRect(x: padding, y: fieldY, width: fieldWidth, height: fieldHeight)
         let sendX = padding + fieldWidth
-        let sendFrame = NSRect(x: sendX, y: buttonsY, width: buttonWidth, height: 28)
+        let sendFrame = NSRect(x: sendX, y: buttonsY, width: buttonWidth, height: 32)
         aiSendButton?.frame = sendFrame
         aiSendSpinner?.frame = NSRect(
             x: sendFrame.midX - 8,
