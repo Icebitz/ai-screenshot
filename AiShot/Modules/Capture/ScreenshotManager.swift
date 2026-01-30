@@ -2,7 +2,7 @@ import Cocoa
 import ScreenCaptureKit
 
 extension Notification.Name {
-    static let closeAllOverlays = Notification.Name("ScreenshotApp.CloseAllOverlays")
+    static let closeAllOverlays = Notification.Name("AiShot.CloseAllOverlays")
 }
 
 class ScreenshotManager {

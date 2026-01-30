@@ -2,7 +2,7 @@ import Foundation
 import Carbon
 
 extension Notification.Name {
-    static let hotkeyPreferencesDidChange = Notification.Name("ScreenshotApp.HotkeyPreferencesDidChange")
+    static let hotkeyPreferencesDidChange = Notification.Name("AiShot.HotkeyPreferencesDidChange")
 }
 
 enum SettingsStore {
@@ -15,24 +15,23 @@ enum SettingsStore {
         static let saveDirectoryPath = "save.directory.path"
         static let apiKey = "ai.api.key"
         static let aiModel = "ai.model"
-        static let devModeEnabled = "ai.dev.mode.enabled"
     }
 
     static let availableAIModels = [
-        "gpt-image-1-mini",
-        "gpt-image-1"
+        "gpt-image-1.5",
+        "gpt-image-1",
+        "gpt-image-1-mini"
     ]
     static let defaultAIModel = "gpt-image-1-mini"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
-            Key.hotKeyCode: Int(kVK_ANSI_0),
+            Key.hotKeyCode: Int(kVK_ANSI_S),
             Key.hotKeyCommand: true,
             Key.hotKeyShift: true,
             Key.hotKeyOption: false,
             Key.hotKeyControl: false,
-            Key.aiModel: defaultAIModel,
-            Key.devModeEnabled: false
+            Key.aiModel: defaultAIModel
         ])
     }
 
@@ -63,7 +62,4 @@ enum SettingsStore {
         UserDefaults.standard.string(forKey: Key.aiModel) ?? defaultAIModel
     }
 
-    static var devModeEnabled: Bool {
-        UserDefaults.standard.bool(forKey: Key.devModeEnabled)
-    }
 }

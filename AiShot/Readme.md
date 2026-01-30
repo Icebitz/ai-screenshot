@@ -1,4 +1,4 @@
-# Screenshot App (Lightshot Clone)
+# AiShot (Lightshot Clone)
 
 A macOS screenshot application built with Swift, similar to Lightshot, with region selection, drawing tools, and quick sharing capabilities.
 
@@ -6,12 +6,13 @@ A macOS screenshot application built with Swift, similar to Lightshot, with regi
 
 - **Menu Bar Only**: Runs from the menu bar without showing a dock icon
 - **Region Selection**: Click and drag to select any region of the screen
-- **Drawing Tools**: 
+- **Drawing Tools**:
   - Pen (freehand drawing)
   - Line
   - Arrow
   - Rectangle
   - Circle
+- **AI Edit**: Prompt-based edits for the selected region (requires API key)
 - **Editing Controls**:
   - Move the captured region
   - Resize using corner control points
@@ -20,41 +21,31 @@ A macOS screenshot application built with Swift, similar to Lightshot, with regi
   - Copy to clipboard
   - Save to file
   - Close/cancel
+- **Hotkey**: Global shortcut to trigger capture (customizable in Settings)
 - **Keyboard Shortcuts**:
   - ESC to cancel selection or close editor
 
 ## Requirements
 
-- macOS 13.0 (Ventura) or later
-- Xcode 14.0 or later
+- macOS 26.0 or later
+- Xcode 16.0 or later
 - Screen Recording permission (requested on first run)
 
 ## Setup Instructions
 
-### 1. Create Xcode Project
+### 1. Open the Project
 
 1. Open Xcode
-2. Create a new macOS App project:
-   - Product Name: `ScreenshotApp`
-   - Interface: SwiftUI
-   - Language: Swift
-   - Minimum Deployment: macOS 13.0
+2. Open `AiShot.xcodeproj`
+3. Select the `AiShot` target
 
-### 2. Add Files to Project
-
-Copy all the Swift files into your Xcode project:
-- `ScreenshotApp.swift` (replace the default one)
-- `ScreenshotManager.swift`
-- `OverlayWindow.swift`
-- `EditorWindow.swift`
-
-### 3. Configure Info.plist
+### 2. Configure Info.plist
 
 Replace or update your Info.plist with the provided one. Key settings:
 - `LSUIElement`: true (hides dock icon)
 - `NSScreenCaptureDescription`: Permission description
 
-### 4. Add Required Frameworks
+### 3. Add Required Frameworks
 
 In your Xcode project:
 1. Select your project in the navigator
@@ -63,7 +54,7 @@ In your Xcode project:
 4. Add the following frameworks:
    - `ScreenCaptureKit.framework`
 
-### 5. Configure Capabilities
+### 4. Configure Capabilities
 
 1. Select your target
 2. Go to "Signing & Capabilities"
@@ -71,12 +62,19 @@ In your Xcode project:
 4. Under Hardened Runtime, enable:
    - "Disable Library Validation"
    - "Allow DYLD Environment Variables" (for debugging)
+5. Ensure the entitlements file is set to `AiShot.entitlements`
 
-### 6. Build and Run
+### 5. Build and Run
 
 1. Build the project (Cmd+B)
 2. Run the app (Cmd+R)
 3. On first run, grant Screen Recording permission when prompted
+### AI Setup (Optional)
+
+1. Open Settings from the menu bar
+2. Add your OpenAI API key
+3. Pick an AI model
+
 4. If permission dialog doesn't appear:
    - Go to System Settings > Privacy & Security > Screen Recording
    - Add your app manually
@@ -122,16 +120,25 @@ The toolbar appears below the selected region with:
 ## Project Structure
 
 ```
-ScreenshotApp/
-├── ScreenshotApp.swift        # Main app entry point, menu bar setup
-├── ScreenshotManager.swift    # Handles screen capture logic
-├── OverlayWindow.swift        # Full-screen overlay with selection, editing, and tools
-└── Info.plist                 # App configuration and permissions
+AiShot/
+├── AiShot.xcodeproj
+├── Info.plist
+├── AiShot.entitlements
+├── Assets.xcassets
+└── Modules/
+    ├── App/
+    │   └── AiShot.swift           # Main app entry point, menu bar setup
+    ├── Capture/
+    │   └── ScreenshotManager.swift # Screen capture logic
+    ├── Overlay/                  # Selection UI, drawing tools, AI prompt
+    ├── Settings/                 # Hotkey + AI settings
+    └── AI/
+        └── OpenAIClient.swift    # Image edit API calls
 ```
 
 ## Architecture
 
-1. **ScreenshotApp**: Sets up the menu bar icon and handles app lifecycle
+1. **AiShot**: Sets up the menu bar icon and handles app lifecycle
 2. **ScreenshotManager**: Manages screen capture using ScreenCaptureKit
 3. **OverlayWindow**: Displays full-screen overlay with:
    - Fixed background image (captured screen)
@@ -139,6 +146,7 @@ ScreenshotApp/
    - Region editing (move, resize, re-select)
    - Drawing tools (pen, line, arrow, rectangle, circle)
    - Toolbar with tools and action buttons
+   - AI prompt for editing the selected region
    - All editing happens in overlay mode without switching windows
 
 ## Key Technologies
@@ -181,8 +189,7 @@ Possible additions:
 - Line width adjustment
 - Undo/redo functionality
 - Upload to cloud services
-- Global keyboard shortcut
-- Multiple monitor support improvements
+- Smarter AI mask editing controls
 - Image cropping tool
 - Magnifying glass during selection
 
@@ -192,8 +199,7 @@ This is a demonstration project. Feel free to modify and use as needed.
 
 ## Notes
 
-- The app uses `NSUserNotification` for feedback notifications (deprecated but simple)
-- For production use, consider implementing UserNotifications framework
-- Screen capture requires macOS 13.0+ for ScreenCaptureKit
+- The app uses `UserNotifications` for quick feedback notifications
+- Screen capture requires ScreenCaptureKit
 - The app sets itself as `.accessory` to hide from the dock
 - Window levels are set to `.screenSaver` and `.floating` for proper overlay behavior

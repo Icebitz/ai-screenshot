@@ -4,7 +4,7 @@ import Carbon
 import ServiceManagement
 
 @main
-struct ScreenshotApp: App {
+struct AiShot: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
     var body: some Scene {
