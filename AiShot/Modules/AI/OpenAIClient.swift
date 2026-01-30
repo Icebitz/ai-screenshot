@@ -109,7 +109,7 @@ struct OpenAIClient {
 
     static func logFileURL() -> URL {
         let cacheDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-        let bundleId = Bundle.main.bundleIdentifier ?? "ScreenshotApp"
+        let bundleId = Bundle.main.bundleIdentifier ?? "AiShot"
         let directory = cacheDirectory?.appendingPathComponent(bundleId, isDirectory: true)
         if let directory {
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

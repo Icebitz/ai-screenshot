@@ -2,7 +2,7 @@ import Foundation
 import Carbon
 
 extension Notification.Name {
-    static let hotkeyPreferencesDidChange = Notification.Name("ScreenshotApp.HotkeyPreferencesDidChange")
+    static let hotkeyPreferencesDidChange = Notification.Name("AiShot.HotkeyPreferencesDidChange")
 }
 
 enum SettingsStore {

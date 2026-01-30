@@ -1,4 +1,4 @@
-# Screenshot App (Lightshot Clone)
+# AiShot (Lightshot Clone)
 
 A macOS screenshot application built with Swift, similar to Lightshot, with region selection, drawing tools, and quick sharing capabilities.
 
@@ -35,7 +35,7 @@ A macOS screenshot application built with Swift, similar to Lightshot, with regi
 
 1. Open Xcode
 2. Create a new macOS App project:
-   - Product Name: `ScreenshotApp`
+   - Product Name: `AiShot`
    - Interface: SwiftUI
    - Language: Swift
    - Minimum Deployment: macOS 13.0
@@ -43,7 +43,7 @@ A macOS screenshot application built with Swift, similar to Lightshot, with regi
 ### 2. Add Files to Project
 
 Copy all the Swift files into your Xcode project:
-- `ScreenshotApp.swift` (replace the default one)
+- `AiShot.swift` (replace the default one)
 - `ScreenshotManager.swift`
 - `OverlayWindow.swift`
 - `EditorWindow.swift`
@@ -122,8 +122,8 @@ The toolbar appears below the selected region with:
 ## Project Structure
 
 ```
-ScreenshotApp/
-├── ScreenshotApp.swift        # Main app entry point, menu bar setup
+AiShot/
+├── AiShot.swift               # Main app entry point, menu bar setup
 ├── ScreenshotManager.swift    # Handles screen capture logic
 ├── OverlayWindow.swift        # Full-screen overlay with selection, editing, and tools
 └── Info.plist                 # App configuration and permissions
@@ -131,7 +131,7 @@ ScreenshotApp/
 
 ## Architecture
 
-1. **ScreenshotApp**: Sets up the menu bar icon and handles app lifecycle
+1. **AiShot**: Sets up the menu bar icon and handles app lifecycle
 2. **ScreenshotManager**: Manages screen capture using ScreenCaptureKit
 3. **OverlayWindow**: Displays full-screen overlay with:
    - Fixed background image (captured screen)
