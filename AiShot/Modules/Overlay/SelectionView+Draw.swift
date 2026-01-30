@@ -150,16 +150,48 @@ extension SelectionView {
 
     func drawElementHighlights(in context: CGContext) {
         if let index = selectedElementIndex, index < drawingElements.count {
-            drawElementGlow(drawingElements[index], in: context, color: NSColor.systemBlue.withAlphaComponent(0.6))
-        }
-        if let index = hoverEraserIndex, index < drawingElements.count {
-            drawElementGlow(drawingElements[index], in: context, color: NSColor.systemRed.withAlphaComponent(0.6))
+            drawElementBoundingRect(drawingElements[index], in: context, color: NSColor.systemBlue)
         }
     }
 
     private func drawElementGlow(_ element: DrawingElement, in context: CGContext, color: NSColor) {
         context.saveGState()
         context.setShadow(offset: .zero, blur: 6, color: color.cgColor)
+        context.setStrokeColor(color.cgColor)
+        let lineWidth = max(1, element.lineWidth)
+        context.setLineWidth(lineWidth)
+        switch element.type {
+        case .pen(let points):
+            guard points.count > 1 else { break }
+            context.beginPath()
+            context.move(to: points[0])
+            for point in points.dropFirst() {
+                context.addLine(to: point)
+            }
+            context.strokePath()
+        case .line(let start, let end):
+            context.beginPath()
+            context.move(to: start)
+            context.addLine(to: end)
+            context.strokePath()
+        case .arrow(let start, let end):
+            drawArrow(from: start, to: end, in: context, color: color, lineWidth: lineWidth)
+        case .rectangle(let rect):
+            context.stroke(rect)
+        case .circle(let rect):
+            context.strokeEllipse(in: rect)
+        case .text(let text, let point):
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: fontFromElement(element),
+                .foregroundColor: color
+            ]
+            NSString(string: text).draw(at: point, withAttributes: attributes)
+        }
+        context.restoreGState()
+    }
+
+    private func drawElementTint(_ element: DrawingElement, in context: CGContext, color: NSColor) {
+        context.saveGState()
         context.setStrokeColor(color.cgColor)
         context.setLineWidth(max(2, element.lineWidth))
         switch element.type {
@@ -190,6 +222,66 @@ extension SelectionView {
             NSString(string: text).draw(at: point, withAttributes: attributes)
         }
         context.restoreGState()
+    }
+
+    private func drawElementBoundingRect(_ element: DrawingElement, in context: CGContext, color: NSColor) {
+        let rect: NSRect?
+        switch element.type {
+        case .pen(let points):
+            guard let first = points.first else { return }
+            var minX = first.x
+            var minY = first.y
+            var maxX = first.x
+            var maxY = first.y
+            for point in points.dropFirst() {
+                minX = min(minX, point.x)
+                minY = min(minY, point.y)
+                maxX = max(maxX, point.x)
+                maxY = max(maxY, point.y)
+            }
+            rect = NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        case .line(let start, let end), .arrow(let start, let end):
+            let minX = min(start.x, end.x)
+            let minY = min(start.y, end.y)
+            let maxX = max(start.x, end.x)
+            let maxY = max(start.y, end.y)
+            rect = NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        case .rectangle(let rectValue), .circle(let rectValue):
+            rect = rectValue
+        case .text(let text, let point):
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: fontFromElement(element)
+            ]
+            let size = NSString(string: text).size(withAttributes: attributes)
+            rect = NSRect(x: point.x, y: point.y, width: size.width, height: size.height)
+        }
+        guard let baseRect = rect else { return }
+        let expanded = baseRect.insetBy(dx: -4, dy: -4)
+        context.saveGState()
+        context.setStrokeColor(color.withAlphaComponent(0.8).cgColor)
+        context.setLineWidth(1.5)
+        context.setLineDash(phase: 0, lengths: [1.2, 2.4])
+        context.stroke(expanded)
+        context.restoreGState()
+    }
+
+    private func elementStrokeColor(_ element: DrawingElement) -> NSColor {
+        switch element.type {
+        case .pen, .line, .arrow, .rectangle, .circle, .text:
+            return element.strokeColor
+        }
+    }
+
+    private func invertedColor(_ color: NSColor) -> NSColor {
+        guard let rgb = color.usingColorSpace(.deviceRGB) else {
+            return NSColor.white
+        }
+        return NSColor(
+            calibratedRed: 1.0 - rgb.redComponent,
+            green: 1.0 - rgb.greenComponent,
+            blue: 1.0 - rgb.blueComponent,
+            alpha: 0.9
+        )
     }
     
     func drawCurrentDrawing(in context: CGContext) {

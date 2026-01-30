@@ -11,6 +11,7 @@ extension SelectionView {
                 currentTool = .none
                 updateToolButtonStates()
                 hideAIPrompt()
+                window?.makeFirstResponder(self)
                 needsDisplay = true
             }
             return true
@@ -30,6 +31,7 @@ extension SelectionView {
                 currentTool = .none
                 updateToolButtonStates()
                 hideAIPrompt()
+                window?.makeFirstResponder(self)
                 needsDisplay = true
             } else {
                 closeOverlay()

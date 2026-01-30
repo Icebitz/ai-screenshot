@@ -14,41 +14,49 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        Form {
-            Section(header: Text("Hotkey")) {
-                HStack(alignment: .center, spacing: 12) {
-                    HotKeyRecorder(
-                        displayText: currentHotKeyText(),
-                        onKeyChange: applyHotKey
-                    )
-                    .frame(height: 28)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 10) {
+                Text("Hotkey:")
+                    .frame(width: 110, alignment: .trailing)
+                HotKeyRecorder(
+                    displayText: currentHotKeyText(),
+                    onKeyChange: applyHotKey
+                )
+                .frame(width: 150, height: 28)
 
-                    Spacer()
+                Spacer(minLength: 12)
 
-                    Toggle("Capture Cursor", isOn: $captureCursor)
-                        .toggleStyle(.switch)
-                }
+                Toggle("Capture cursor", isOn: $captureCursor)
+                    .toggleStyle(.switch)
             }
 
-            Section(header: Text("OpenAI API Key")) {
+            Divider()
+
+            HStack(alignment: .center, spacing: 10) {
+                Text("OpenAI API Key:")
+                    .frame(width: 110, alignment: .trailing)
                 TextField("", text: $apiKey, prompt: Text("sk-proj-..."))
                     .textFieldStyle(RoundedBorderTextFieldStyle())
-                HStack {
-                    Text("Model")
-                    Spacer()
-                    AIModelPicker(selection: $aiModel, items: SettingsStore.availableAIModels)
-                        .frame(width: 200)
-                }
+            }
+
+            HStack(alignment: .center, spacing: 10) {
+                Text("")
+                    .frame(width: 110)
+                AIModelPicker(selection: $aiModel, items: SettingsStore.availableAIModels)
+                    .frame(width: 200)
+                Spacer()
             }
 
             HStack {
                 Spacer()
                 Button("Apply") { applyChanges() }
                     .disabled(!hasChanges())
+                    .controlSize(.large)
+                    .padding(.horizontal, 6)
             }
         }
         .padding(20)
-        .frame(width: 420)
+        .frame(width: 520)
         .onAppear { loadFromDefaults() }
     }
 

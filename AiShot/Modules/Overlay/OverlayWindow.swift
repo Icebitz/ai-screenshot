@@ -72,7 +72,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
     var activeColorTarget: ColorTarget = .stroke
 
     let toolButtonWidth: CGFloat = 32
-    let actionButtonWidth: CGFloat = 28
+    let actionButtonWidth: CGFloat = 32
     let toolbarPadding: CGFloat = 10
     let buttonSpacing: CGFloat = 8
     let intraGroupSpacing: CGFloat = 0

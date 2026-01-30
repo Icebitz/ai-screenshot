@@ -5,7 +5,7 @@ extension SelectionView {
         clearToolbar()
 
         // Place toolbar centered on the bottom edge of the selection
-        let toolbarHeight: CGFloat = 40
+        let toolbarHeight: CGFloat = 48
         var toolbarY = rect.minY - toolbarHeight / 2
         toolbarY = min(max(4, toolbarY), bounds.maxY - toolbarHeight - 4)
 
@@ -33,7 +33,7 @@ extension SelectionView {
         let actionSelectors: [Selector] = [#selector(copyToClipboard), #selector(saveImage), #selector(closeOverlay)]
         actionButtons = []
         for (index, icon) in actionIcons.enumerated() {
-            let button = createActionButton(icon: icon, x: xOffset, y: 4, action: actionSelectors[index])
+            let button = createActionButton(icon: icon, x: xOffset, y: 8, action: actionSelectors[index])
             button.groupPosition = groupPosition(for: index, count: actionIcons.count)
             actionButtons.append(button)
             toolbar.addSubview(button)
@@ -62,7 +62,7 @@ extension SelectionView {
         
         toolButtonTypes = tools.map { $0.1 }
         for (index, (icon, tool)) in tools.enumerated() {
-            let button = createToolButton(icon: icon, tool: tool, x: xOffset, y: 4)
+            let button = createToolButton(icon: icon, tool: tool, x: xOffset, y: 8)
             button.groupPosition = groupPosition(for: index, count: tools.count)
             toolButtons.append(button)
             toolbar.addSubview(button)
@@ -75,7 +75,7 @@ extension SelectionView {
         
         xOffset += buttonSpacing
 
-        let strokeButton = ColorSwatchButton(frame: NSRect(x: xOffset, y: 4, width: toolButtonWidth, height: 32))
+        let strokeButton = ColorSwatchButton(frame: NSRect(x: xOffset, y: 8, width: toolButtonWidth, height: 32))
         strokeButton.title = ""
         strokeButton.image = nil
         strokeButton.isBordered = false
@@ -88,7 +88,7 @@ extension SelectionView {
         toolbar.addSubview(strokeButton)
         xOffset += toolButtonWidth + intraGroupSpacing
 
-        let fillButton = ColorSwatchButton(frame: NSRect(x: xOffset, y: 4, width: toolButtonWidth, height: 32))
+        let fillButton = ColorSwatchButton(frame: NSRect(x: xOffset, y: 8, width: toolButtonWidth, height: 32))
         fillButton.title = ""
         fillButton.image = nil
         fillButton.isBordered = false
@@ -101,7 +101,7 @@ extension SelectionView {
         toolbar.addSubview(fillButton)
         xOffset += toolButtonWidth + intraGroupSpacing
 
-        let widthButton = createIconButton(icon: "lineweight", x: xOffset, y: 4)
+        let widthButton = createIconButton(icon: "lineweight", x: xOffset, y: 8)
         widthButton.target = self
         widthButton.action = #selector(toggleLineWidthPicker)
         widthButton.isActiveAppearance = false
@@ -110,7 +110,7 @@ extension SelectionView {
         toolbar.addSubview(widthButton)
         xOffset += toolButtonWidth + intraGroupSpacing
 
-        let fontButton = createIconButton(icon: "textformat.size", x: xOffset, y: 4)
+        let fontButton = createIconButton(icon: "textformat.size", x: xOffset, y: 8)
         fontButton.target = self
         fontButton.action = #selector(toggleFontPicker)
         fontButton.isActiveAppearance = false
@@ -124,7 +124,7 @@ extension SelectionView {
     func updateToolbar() {
         guard let rect = selectedRect else { return }
         
-        let toolbarHeight: CGFloat = 40
+        let toolbarHeight: CGFloat = 48
         var toolbarY = rect.minY - toolbarHeight / 2
         toolbarY = min(max(4, toolbarY), bounds.maxY - toolbarHeight - 4)
 
@@ -135,7 +135,7 @@ extension SelectionView {
         var xOffset = toolbarGroupStartX(toolbarWidth: toolbarFrame.width, contentWidth: contentWidth)
         if actionButtons.count >= 3 {
             for (index, button) in actionButtons.enumerated() {
-                button.frame.origin = NSPoint(x: xOffset, y: 4)
+                button.frame.origin = NSPoint(x: xOffset, y: 8)
                 xOffset += actionButtonWidth
                 if index < actionButtons.count - 1 {
                     xOffset += intraGroupSpacing
@@ -146,7 +146,7 @@ extension SelectionView {
         xOffset += buttonSpacing
 
         for (index, button) in toolButtons.enumerated() {
-            button.frame.origin = NSPoint(x: xOffset, y: 4)
+            button.frame.origin = NSPoint(x: xOffset, y: 8)
             xOffset += toolButtonWidth
             if index < toolButtons.count - 1 {
                 xOffset += intraGroupSpacing
@@ -154,13 +154,13 @@ extension SelectionView {
         }
         xOffset += buttonSpacing
         xOffset += buttonSpacing
-        strokeColorButton?.frame.origin = NSPoint(x: xOffset, y: 4)
+        strokeColorButton?.frame.origin = NSPoint(x: xOffset, y: 8)
         xOffset += toolButtonWidth + intraGroupSpacing
-        fillColorButton?.frame.origin = NSPoint(x: xOffset, y: 4)
+        fillColorButton?.frame.origin = NSPoint(x: xOffset, y: 8)
         xOffset += toolButtonWidth + intraGroupSpacing
-        lineWidthButton?.frame.origin = NSPoint(x: xOffset, y: 4)
+        lineWidthButton?.frame.origin = NSPoint(x: xOffset, y: 8)
         xOffset += toolButtonWidth + intraGroupSpacing
-        fontSettingsButton?.frame.origin = NSPoint(x: xOffset, y: 4)
+        fontSettingsButton?.frame.origin = NSPoint(x: xOffset, y: 8)
         updateGroupBorders()
         updateColorPickerPosition()
         updateLineWidthPickerPosition()
@@ -208,7 +208,7 @@ extension SelectionView {
     }
     
     private func createActionButton(icon: String, x: CGFloat, y: CGFloat, action: Selector) -> ToolbarButton {
-        let button = ToolbarButton(frame: NSRect(x: x, y: y, width: actionButtonWidth, height: 28))
+        let button = ToolbarButton(frame: NSRect(x: x, y: y, width: actionButtonWidth, height: 32))
         if let customImage = NSImage(named: icon) {
             button.image = customImage
             button.image?.isTemplate = true
@@ -257,7 +257,7 @@ extension SelectionView {
         var x = rect.midX - width / 2
         if x + width > bounds.maxX { x = bounds.maxX - width }
         if x < 0 { x = 0 }
-        return NSRect(x: x, y: y, width: width, height: 40)
+        return NSRect(x: x, y: y, width: width, height: 48)
     }
 
     private func toolbarContentWidth() -> CGFloat {
