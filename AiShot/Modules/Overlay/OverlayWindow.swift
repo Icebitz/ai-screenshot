@@ -212,7 +212,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         pasteboard.clearContents()
         pasteboard.writeObjects([nsImage])
         ClipboardLogStore.shared.append(
-            ClipboardLogEntry.fromPasteboard(pasteboard, source: "AiShot.copyToClipboard")
+            makeClipboardLogEntry(from: pasteboard, source: "AiShot.copyToClipboard")
         )
         
         showNotification(message: "Copied to clipboard")

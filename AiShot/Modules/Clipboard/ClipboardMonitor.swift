@@ -31,7 +31,7 @@ final class ClipboardMonitor {
         let changeCount = pasteboard.changeCount
         guard changeCount != lastChangeCount else { return }
         lastChangeCount = changeCount
-        let entry = ClipboardLogEntry.fromPasteboard(pasteboard, source: "system")
+        let entry = makeClipboardLogEntry(from: pasteboard, source: "system")
         ClipboardLogStore.shared.append(entry)
     }
 }

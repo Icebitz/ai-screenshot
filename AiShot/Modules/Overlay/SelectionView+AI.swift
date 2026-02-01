@@ -178,7 +178,7 @@ extension SelectionView {
         Task { [weak self] in
             do {
                 let model = SettingsStore.aiModelValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                let resultImage = try await OpenAIClient.editImage(
+                let resultImage = try await openAIEditImage(
                     apiKey: apiKey,
                     model: model,
                     prompt: prompt,

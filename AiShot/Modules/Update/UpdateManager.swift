@@ -69,11 +69,11 @@ final class UpdateManager: NSObject, UNUserNotificationCenterDelegate {
                 print("UpdateManager: missing tag_name")
                 return
             }
-            let latestVersion = Self.normalizeVersion(tag)
-            let currentVersion = Self.normalizeVersion(Self.currentAppVersion())
+            let latestVersion = normalizeVersion(tag)
+            let currentVersion = normalizeVersion(currentAppVersion())
             let releaseURL = release["html_url"] as? String
             
-            if Self.compareVersions(latestVersion, currentVersion) == .orderedDescending {
+            if compareVersions(latestVersion, currentVersion) == .orderedDescending {
                 notifyUpdate(latestVersion: latestVersion, currentVersion: currentVersion, releaseURL: releaseURL)
             }
         } catch {
@@ -100,37 +100,6 @@ final class UpdateManager: NSObject, UNUserNotificationCenterDelegate {
             if let error {
                 print("UpdateManager: notification error \(error)")
             }
-        }
-    }
-    
-    static func currentAppVersion() -> String {
-        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0.0"
-    }
-    
-    static func normalizeVersion(_ version: String) -> String {
-        let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lower = trimmed.lowercased()
-        let clean = lower.hasPrefix("v") ? String(lower.dropFirst()) : lower
-        return clean
-    }
-    
-    static func compareVersions(_ a: String, _ b: String) -> ComparisonResult {
-        let aParts = versionParts(a)
-        let bParts = versionParts(b)
-        let count = max(aParts.count, bParts.count)
-        for index in 0..<count {
-            let aValue = index < aParts.count ? aParts[index] : 0
-            let bValue = index < bParts.count ? bParts[index] : 0
-            if aValue < bValue { return .orderedAscending }
-            if aValue > bValue { return .orderedDescending }
-        }
-        return .orderedSame
-    }
-    
-    private static func versionParts(_ version: String) -> [Int] {
-        return version.split(separator: ".").map { part in
-            let digits = part.prefix { $0.isNumber }
-            return Int(digits) ?? 0
         }
     }
     

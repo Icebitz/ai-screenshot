@@ -25,18 +25,6 @@ enum SettingsStore {
     ]
     static let defaultAIModel = "gpt-image-1-mini"
 
-    static func registerDefaults() {
-        UserDefaults.standard.register(defaults: [
-            Key.hotKeyCode: Int(kVK_ANSI_S),
-            Key.hotKeyCommand: true,
-            Key.hotKeyShift: true,
-            Key.hotKeyOption: false,
-            Key.hotKeyControl: false,
-            Key.captureCursor: false,
-            Key.aiModel: defaultAIModel
-        ])
-    }
-
     static var hotKeyCode: UInt32 {
         UInt32(UserDefaults.standard.integer(forKey: Key.hotKeyCode))
     }

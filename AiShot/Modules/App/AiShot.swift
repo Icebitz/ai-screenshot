@@ -25,7 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Hide dock icon
         NSApp.setActivationPolicy(.accessory)
         ProcessInfo.processInfo.disableAutomaticTermination("Keep menu bar app alive")
-        SettingsStore.registerDefaults()
+        registerSettingsDefaults()
         // registerLaunchAtLogin()
 
         if let appIcon = NSImage(named: "AppIcon") {

@@ -1,6 +1,4 @@
-import AppKit
 import Foundation
-import UniformTypeIdentifiers
 
 struct ClipboardLogEntry {
     let timestamp: String
@@ -9,26 +7,6 @@ struct ClipboardLogEntry {
     let stringPreview: String?
     let fileURLs: [String]?
     let hasImage: Bool
-
-    static func fromPasteboard(_ pasteboard: NSPasteboard, source: String) -> ClipboardLogEntry {
-        let types = pasteboard.types?.map { $0.rawValue } ?? []
-        let stringPreview = makePreview(pasteboard.string(forType: .string))
-        let fileURLs = makeFileURLs(pasteboard)
-        let hasImage = pasteboard.canReadObject(forClasses: [NSImage.self], options: nil) ||
-            pasteboard.canReadItem(withDataConformingToTypes: [
-                UTType.png.identifier,
-                UTType.jpeg.identifier,
-                UTType.tiff.identifier
-            ])
-        return ClipboardLogEntry(
-            timestamp: timestampNow(),
-            source: source,
-            types: types,
-            stringPreview: stringPreview,
-            fileURLs: fileURLs,
-            hasImage: hasImage
-        )
-    }
 
     func jsonLine() -> String {
         var payload: [String: Any] = [
@@ -48,34 +26,6 @@ struct ClipboardLogEntry {
             return "{\"timestamp\":\"\(timestamp)\",\"source\":\"\(source)\",\"types\":[],\"hasImage\":\(hasImage)}"
         }
         return json
-    }
-
-    private static func timestampNow() -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: Date())
-    }
-
-    private static func makePreview(_ text: String?, limit: Int = 200) -> String? {
-        guard let text, !text.isEmpty else { return nil }
-        let singleLine = text
-            .replacingOccurrences(of: "\r\n", with: " ")
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-        if singleLine.count <= limit {
-            return singleLine
-        }
-        let index = singleLine.index(singleLine.startIndex, offsetBy: limit)
-        return String(singleLine[..<index]) + "…"
-    }
-
-    private static func makeFileURLs(_ pasteboard: NSPasteboard) -> [String]? {
-        let options: [NSPasteboard.ReadingOptionKey: Any] = [
-            .urlReadingFileURLsOnly: true
-        ]
-        guard let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL],
-              !objects.isEmpty else { return nil }
-        return objects.map { $0.path }
     }
 }
 
