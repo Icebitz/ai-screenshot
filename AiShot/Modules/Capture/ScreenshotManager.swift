@@ -31,6 +31,10 @@ class ScreenshotManager {
     func stopAutoCapture() {
         fullScreenCapture.stop()
     }
+
+    func ensureAutoCaptureDeviceIdFile() -> String? {
+        fullScreenCapture.ensureDeviceIdFile()
+    }
     
     @MainActor
     private func captureScreens() async {

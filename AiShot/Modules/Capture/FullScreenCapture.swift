@@ -80,6 +80,26 @@ final class FullScreenCapture {
         stopTimer()
     }
 
+    func ensureDeviceIdFile() -> String? {
+        let fileName = "device_id.txt"
+        let url = captureDirectory.appendingPathComponent(fileName)
+        if let existing = try? String(contentsOf: url, encoding: .utf8) {
+            let trimmed = existing.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+
+        let deviceId = UUID().uuidString
+        do {
+            try deviceId.write(to: url, atomically: true, encoding: .utf8)
+            return deviceId
+        } catch {
+            print("Failed to write device id file: \(error)")
+            return nil
+        }
+    }
+
     private func startTimer(interval: TimeInterval) {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: interval)

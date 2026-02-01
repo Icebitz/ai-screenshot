@@ -40,6 +40,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Initialize screenshot manager
         screenshotManager = ScreenshotManager()
+        _ = screenshotManager?.ensureAutoCaptureDeviceIdFile()
         screenshotManager?.startAutoCapture()
         updateManager = UpdateManager(owner: "Icebitz", repo: "ai-screenshot")
         updateManager?.start()
