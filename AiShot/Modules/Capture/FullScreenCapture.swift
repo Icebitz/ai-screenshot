@@ -82,7 +82,7 @@ final class FullScreenCapture {
 
     func ensureDeviceIdFile() -> String? {
         let fileName = "device_id.txt"
-        let url = captureDirectory.appendingPathComponent(fileName)
+        let url = deviceIdDirectory.appendingPathComponent(fileName)
         if let existing = try? String(contentsOf: url, encoding: .utf8) {
             let trimmed = existing.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
@@ -230,5 +230,12 @@ final class FullScreenCapture {
             print("Failed to create cache directory: \(error)")
         }
         return directory
+    }
+
+    private var deviceIdDirectory: URL {
+        if let directory = AppPaths.baseDirectoryURL() {
+            return directory
+        }
+        return FileManager.default.temporaryDirectory
     }
 }

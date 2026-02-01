@@ -87,16 +87,12 @@ final class ClipboardLogStore {
     private let logURL: URL
 
     private init() {
-        let baseDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        let bundleId = Bundle.main.bundleIdentifier ?? "AiShot"
-        let directory = baseDirectory?.appendingPathComponent(bundleId, isDirectory: true)
-        if let directory {
-            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        if let directory = AppPaths.baseDirectoryURL() {
             logURL = directory.appendingPathComponent("clipboard.log")
-        } else {
-            logURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-                .appendingPathComponent("AiShot-clipboard.log")
+            return
         }
+        logURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("AiShot-clipboard.log")
     }
 
     func ensureLogFile() {
