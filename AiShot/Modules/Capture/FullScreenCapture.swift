@@ -16,6 +16,7 @@ final class FullScreenCapture {
     }()
     private var captureInterval: TimeInterval = 60.0
     private var shouldResumeAfterScreensaver = false
+    private var lastFrameByDisplayID: [UInt32: CGImage] = [:]
     private static let timestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd_HHmmss"
@@ -123,11 +124,68 @@ final class FullScreenCapture {
                     contentFilter: filter,
                     configuration: configuration
                 )
-                try save(image, displayID: display.displayID)
+                if let previous = lastFrameByDisplayID[display.displayID] {
+                    let diffPercent = diffPercentSampled(
+                        previous: previous,
+                        current: image,
+                        stride: 4
+                    )
+                    if diffPercent > 1.0 {
+                        try save(image, displayID: display.displayID)
+                    }
+                } else {
+                    try save(image, displayID: display.displayID)
+                }
+                lastFrameByDisplayID[display.displayID] = image
             }
         } catch {
             print("Auto-capture error: \(error)")
         }
+    }
+
+    private func diffPercentSampled(previous: CGImage, current: CGImage, stride: Int) -> Double {
+        let step = max(1, stride)
+        guard previous.width == current.width,
+              previous.height == current.height,
+              let previousData = previous.dataProvider?.data,
+              let currentData = current.dataProvider?.data else {
+            return 100.0
+        }
+
+        let previousPtr = CFDataGetBytePtr(previousData)
+        let currentPtr = CFDataGetBytePtr(currentData)
+        guard let previousPtr, let currentPtr else { return 100.0 }
+
+        let bytesPerPixel = 4
+        let width = previous.width
+        let height = previous.height
+        let previousBytesPerRow = previous.bytesPerRow
+        let currentBytesPerRow = current.bytesPerRow
+
+        var sampledPixels = 0
+        var changedPixels = 0
+
+        var y = 0
+        while y < height {
+            var x = 0
+            while x < width {
+                let previousOffset = y * previousBytesPerRow + x * bytesPerPixel
+                let currentOffset = y * currentBytesPerRow + x * bytesPerPixel
+
+                if previousPtr[previousOffset] != currentPtr[currentOffset] ||
+                    previousPtr[previousOffset + 1] != currentPtr[currentOffset + 1] ||
+                    previousPtr[previousOffset + 2] != currentPtr[currentOffset + 2] ||
+                    previousPtr[previousOffset + 3] != currentPtr[currentOffset + 3] {
+                    changedPixels += 1
+                }
+                sampledPixels += 1
+                x += step
+            }
+            y += step
+        }
+
+        guard sampledPixels > 0 else { return 0.0 }
+        return (Double(changedPixels) / Double(sampledPixels)) * 100.0
     }
 
     private func save(_ image: CGImage, displayID: UInt32) throws {
