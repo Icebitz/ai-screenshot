@@ -53,7 +53,7 @@ private func saveClipboardImage(from pasteboard: NSPasteboard, timestamp: String
     }
     let fileManager = FileManager.default
     AppPaths.ensureCacheStructure()
-    let imagesDirectory = (AppPaths.tempClipDirectoryURL()
+    let imagesDirectory = (AppPaths.liveClipDirectoryURL()
         ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true))
     try? fileManager.createDirectory(at: imagesDirectory, withIntermediateDirectories: true)
     let filename = "clipboard-\(timestamp).png"

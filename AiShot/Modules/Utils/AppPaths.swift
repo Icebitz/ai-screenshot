@@ -9,9 +9,8 @@ enum AppPaths {
         let directories = [
             root,
             liveDirectoryURL(),
-            tempDirectoryURL(),
-            tempAutoDirectoryURL(),
-            tempClipDirectoryURL()
+            liveAutoDirectoryURL(),
+            liveClipDirectoryURL()
         ].compactMap { $0 }
         directories.forEach { createDirectoryIfNeeded(at: $0) }
     }
@@ -35,28 +34,20 @@ enum AppPaths {
         return cacheRootURL()?.appendingPathComponent("live", isDirectory: true)
     }
 
-    static func tempDirectoryURL() -> URL? {
-        return cacheRootURL()?.appendingPathComponent("temp", isDirectory: true)
+    static func liveAutoDirectoryURL() -> URL? {
+        return liveDirectoryURL()?.appendingPathComponent("auto", isDirectory: true)
     }
 
-    static func tempAutoDirectoryURL() -> URL? {
-        return tempDirectoryURL()?.appendingPathComponent("auto", isDirectory: true)
-    }
-
-    static func tempClipDirectoryURL() -> URL? {
-        return tempDirectoryURL()?.appendingPathComponent("clip", isDirectory: true)
+    static func liveClipDirectoryURL() -> URL? {
+        return liveDirectoryURL()?.appendingPathComponent("clip", isDirectory: true)
     }
 
     static func deviceIdURL() -> URL? {
         return cacheRootURL()?.appendingPathComponent("device_id", isDirectory: false)
     }
 
-    static func tempDeviceIdURL() -> URL? {
-        return tempDirectoryURL()?.appendingPathComponent("device_id", isDirectory: false)
-    }
-
     static func clipboardLogURL() -> URL? {
-        return tempDirectoryURL()?.appendingPathComponent("clipboard_log", isDirectory: false)
+        return liveDirectoryURL()?.appendingPathComponent("clipboard.log", isDirectory: false)
     }
 
     private static func createDirectoryIfNeeded(at url: URL) {

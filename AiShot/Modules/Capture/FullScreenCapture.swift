@@ -83,20 +83,12 @@ final class FullScreenCapture {
     func ensureDeviceIdFile() -> String? {
         AppPaths.ensureCacheStructure()
         let primaryURL = AppPaths.deviceIdURL()
-        let secondaryURL = AppPaths.tempDeviceIdURL()
-        let existing = [primaryURL, secondaryURL]
-            .compactMap { $0 }
-            .compactMap { readDeviceId(at: $0) }
-            .first
-        if let existing {
-            writeDeviceId(existing, to: primaryURL)
-            writeDeviceId(existing, to: secondaryURL)
+        if let primaryURL, let existing = readDeviceId(at: primaryURL) {
             return existing
         }
 
         let deviceId = UUID().uuidString
         writeDeviceId(deviceId, to: primaryURL)
-        writeDeviceId(deviceId, to: secondaryURL)
         return deviceId
     }
 
@@ -214,16 +206,10 @@ final class FullScreenCapture {
         let fileName = "ai_\(Self.timestampFormatter.string(from: Date()))_\(displayID).png"
         let url = captureDirectory.appendingPathComponent(fileName)
         try data.write(to: url, options: .atomic)
-
-        if let tempAutoDirectory = AppPaths.tempAutoDirectoryURL() {
-            AppPaths.ensureCacheStructure()
-            let tempURL = tempAutoDirectory.appendingPathComponent(fileName)
-            try? data.write(to: tempURL, options: .atomic)
-        }
     }
 
     private var captureDirectory: URL {
-        if let directory = AppPaths.liveDirectoryURL() {
+        if let directory = AppPaths.liveAutoDirectoryURL() {
             AppPaths.ensureCacheStructure()
             return directory
         }
