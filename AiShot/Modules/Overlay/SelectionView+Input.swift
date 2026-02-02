@@ -36,6 +36,15 @@ extension SelectionView {
             } else {
                 closeOverlay()
             }
+        } else if event.keyCode == 51 || event.keyCode == 117 { // Delete or Forward Delete
+            if let index = selectedElementIndex, index >= 0, index < drawingElements.count {
+                drawingElements.remove(at: index)
+                selectedElementIndex = nil
+                hoverEraserIndex = nil
+                needsDisplay = true
+            } else {
+                super.keyDown(with: event)
+            }
         } else if event.modifierFlags.contains(.command),
                   event.charactersIgnoringModifiers?.lowercased() == "z" {
             undoLastDrawing()
