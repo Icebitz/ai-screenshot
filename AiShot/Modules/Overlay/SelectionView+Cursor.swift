@@ -6,19 +6,22 @@ extension SelectionView {
         if let rect = selectedRect {
             if isDrawingTool {
                 addCursorRect(rect, cursor: .crosshair)
-                return
             }
             if currentTool == .eyedropper {
                 addCursorRect(rect, cursor: eyedropperCursor)
-                return
             }
             if currentTool == .move {
                 addCursorRect(rect, cursor: .openHand)
             }
         }
-        for (index, rect) in controlPoints.enumerated() {
+        let pointsToUse = activeTextField != nil ? textControlPoints : controlPoints
+        for (index, rect) in pointsToUse.enumerated() {
             let cursor: NSCursor
             switch index {
+            case 0, 3:
+                cursor = resizeNorthEastSouthWestCursor
+            case 1, 2:
+                cursor = resizeNorthWestSouthEastCursor
             case 4, 5:
                 cursor = .resizeUpDown
             case 6, 7:
@@ -56,5 +59,21 @@ extension SelectionView {
         }
         image.unlockFocus()
         return NSCursor(image: image, hotSpot: NSPoint(x: 2, y: 2))
+    }
+
+    func makeSystemResizeCursor(resource: String, fallback: NSCursor) -> NSCursor {
+        let basePath = "/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/HIServices.framework/Versions/A/Resources/cursors"
+        let folderPath = "\(basePath)/\(resource)"
+        let imagePath = "\(folderPath)/cursor.pdf"
+        let plistPath = "\(folderPath)/info.plist"
+        guard
+            let image = NSImage(contentsOfFile: imagePath),
+            let plist = NSDictionary(contentsOfFile: plistPath),
+            let hotX = plist["hotx"] as? NSNumber,
+            let hotY = plist["hoty"] as? NSNumber
+        else {
+            return fallback
+        }
+        return NSCursor(image: image, hotSpot: NSPoint(x: hotX.doubleValue, y: hotY.doubleValue))
     }
 }

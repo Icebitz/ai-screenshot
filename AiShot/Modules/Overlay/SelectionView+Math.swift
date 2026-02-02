@@ -42,8 +42,7 @@ extension SelectionView {
         return imageRect
     }
 
-    func controlPointRects(for rect: NSRect) -> [NSRect] {
-        let size: CGFloat = 8
+    func controlPointRects(for rect: NSRect, size: CGFloat = 12) -> [NSRect] {
         let half = size / 2
         return [
             NSRect(x: rect.minX - half, y: rect.minY - half, width: size, height: size), // Bottom-left

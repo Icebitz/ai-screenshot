@@ -5,12 +5,15 @@ extension Notification.Name {
 }
 
 enum SelectionMode {
-    case selecting      // Initial drag to create selection
-    case selected       // Region selected, showing tools
-    case dragging       // Moving the selection
-    case resizing       // Resizing via control points
-    case drawing        // Drawing on the image
-    case elementDragging // Moving a drawn element
+    case creating       // Dragging to create selection
+    case active         // Selection exists, tools visible
+    case moving         // Moving the selection
+    case resizing       // Resizing the selection
+    case drawing        // Drawing shapes/lines
+    case movingElement  // Moving a drawn element
+    case creatingText   // Dragging to create text area
+    case editingText    // Editing text
+    case resizingTextArea  // Resizing text area via control points
 }
 
 enum DrawingTool {
@@ -39,7 +42,7 @@ struct DrawingElement {
         case arrow(start: NSPoint, end: NSPoint)
         case rectangle(rect: NSRect)
         case circle(rect: NSRect)
-        case text(text: String, point: NSPoint)
+        case text(text: String, rect: NSRect)
     }
     
     let type: ElementType

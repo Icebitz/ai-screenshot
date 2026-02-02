@@ -8,7 +8,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
     weak var overlayWindow: OverlayWindow?
     
     // Selection state
-    var mode: SelectionMode = .selecting
+    var mode: SelectionMode = .creating
     var startPoint: NSPoint?
     var currentPoint: NSPoint?
     var selectedRect: NSRect?
@@ -30,12 +30,28 @@ class SelectionView: NSView, NSTextFieldDelegate {
     var currentFontSize: CGFloat = 16
     var currentFontName: String = NSFont.systemFont(ofSize: 16).fontName
     var activeTextField: NSTextField?
-    var activeTextOrigin: NSPoint?
+    var activeTextRect: NSRect?
+    var textAreaDragStart: NSPoint?
+    var textControlPoints: [NSRect] = []
+    var resizingTextAreaCorner: Int?
+    let textAreaDefaultWidth: CGFloat = 200
+    let textAreaMinWidth: CGFloat = 40
+    let textAreaDefaultHeight: CGFloat = 60
+    let textAreaMinHeight: CGFloat = 24
     var isFinishingTextEntry: Bool = false
+    var isDeferringTextFinishForResize: Bool = false
     var selectedElementIndex: Int?
     var hoverEraserIndex: Int?
     var trackingArea: NSTrackingArea?
     lazy var eyedropperCursor: NSCursor = makeEyedropperCursor()
+    lazy var resizeNorthEastSouthWestCursor: NSCursor = makeSystemResizeCursor(
+        resource: "resizenortheastsouthwest",
+        fallback: .crosshair
+    )
+    lazy var resizeNorthWestSouthEastCursor: NSCursor = makeSystemResizeCursor(
+        resource: "resizenorthwestsoutheast",
+        fallback: .crosshair
+    )
     
     // UI Elements
     var toolButtons: [ToolbarButton] = []
@@ -125,6 +141,30 @@ class SelectionView: NSView, NSTextFieldDelegate {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         return true
     }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let location: NSPoint
+        if let window {
+            if let event = NSApp.currentEvent,
+               (event.type == .leftMouseDown || event.type == .rightMouseDown),
+               event.window == window {
+                location = convert(event.locationInWindow, from: nil)
+            } else {
+                location = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            }
+        } else {
+            location = superview != nil ? convert(point, from: superview) : point
+        }
+        if activeTextField != nil, !textControlPoints.isEmpty {
+            let hitAreaExpansion: CGFloat = 8
+            for controlPoint in textControlPoints {
+                if controlPoint.insetBy(dx: -hitAreaExpansion, dy: -hitAreaExpansion).contains(location) {
+                    return self
+                }
+            }
+        }
+        return super.hitTest(point)
+    }
     
     deinit {
         NotificationCenter.default.removeObserver(self)
@@ -140,7 +180,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         drawDimOverlay(in: context)
         
         // Draw selection rectangle
-        if let start = startPoint, let current = currentPoint, mode == .selecting {
+        if let start = startPoint, let current = currentPoint, mode == .creating {
             let rect = normalizedRect(from: start, to: current)
             drawSelectionArea(rect, in: context)
             drawCenterGuides(for: rect, in: context)
@@ -176,10 +216,19 @@ class SelectionView: NSView, NSTextFieldDelegate {
                 }
             
             // Draw control points
-            if currentTool == .move {
-                drawControlPoints(for: rect, in: context)
-            }
+            drawControlPoints(for: rect, in: context)
             drawSizeLabel(for: rect, in: context)
+
+            // Draw text area overlay when defining or editing
+            if mode == .creatingText, let start = startPoint, let current = currentPoint {
+                let textRect = normalizedRect(from: start, to: current)
+                drawAIEditRect(textRect, in: context)
+                drawControlPoints(for: textRect, in: context, size: 8)
+            }
+            if activeTextField != nil, let textRect = activeTextRect {
+                drawAIEditRect(textRect, in: context)
+                drawControlPoints(for: textRect, in: context, size: 8)
+            }
         }
     }
 
@@ -396,6 +445,54 @@ class SelectionView: NSView, NSTextFieldDelegate {
         window?.invalidateCursorRects(for: self)
     }
 
+    func updateTextControlPoints() {
+        guard let rect = activeTextRect else { return }
+        textControlPoints = controlPointRects(for: rect, size: 8)
+        window?.invalidateCursorRects(for: self)
+    }
+
+    func handleTextAreaResize(corner: Int, to point: NSPoint, rect: inout NSRect) {
+        let clipRect = selectedRect ?? bounds
+        let clampedPoint = NSPoint(
+            x: min(max(clipRect.minX, point.x), clipRect.maxX),
+            y: min(max(clipRect.minY, point.y), clipRect.maxY)
+        )
+        switch corner {
+        case 0: // Bottom-left
+            rect.size.width = rect.maxX - clampedPoint.x
+            rect.size.height = rect.maxY - clampedPoint.y
+            rect.origin.x = clampedPoint.x
+            rect.origin.y = clampedPoint.y
+        case 1: // Bottom-right
+            rect.size.width = clampedPoint.x - rect.minX
+            rect.size.height = rect.maxY - clampedPoint.y
+            rect.origin.y = clampedPoint.y
+        case 2: // Top-left
+            rect.size.width = rect.maxX - clampedPoint.x
+            rect.size.height = clampedPoint.y - rect.minY
+            rect.origin.x = clampedPoint.x
+        case 3: // Top-right
+            rect.size.width = clampedPoint.x - rect.minX
+            rect.size.height = clampedPoint.y - rect.minY
+        case 4: // Bottom-mid
+            rect.size.height = rect.maxY - clampedPoint.y
+            rect.origin.y = clampedPoint.y
+        case 5: // Top-mid
+            rect.size.height = clampedPoint.y - rect.minY
+        case 6: // Left-mid
+            rect.size.width = rect.maxX - clampedPoint.x
+            rect.origin.x = clampedPoint.x
+        case 7: // Right-mid
+            rect.size.width = clampedPoint.x - rect.minX
+        default:
+            break
+        }
+        rect = rect.intersection(clipRect)
+        if rect.width < textAreaMinWidth { rect.size.width = textAreaMinWidth }
+        if rect.height < textAreaMinHeight { rect.size.height = textAreaMinHeight }
+        rect = rect.intersection(clipRect)
+    }
+
     func updateToolButtonStates() {
         let hasApiKey = !SettingsStore.apiKeyValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if currentTool == .ai, !hasApiKey {
@@ -475,6 +572,42 @@ class SelectionView: NSView, NSTextFieldDelegate {
         toolbarView = nil
     }
 
+    /// Returns average luminance (0–1) of the captured image in the view rect. Lower = darker.
+    func averageLuminanceInViewRect(_ rect: NSRect) -> CGFloat? {
+        let imageRect = imageRectForViewRect(rect)
+        guard imageRect.width > 0, imageRect.height > 0,
+              let dataProvider = screenImage.dataProvider,
+              let data = dataProvider.data,
+              let bytes = CFDataGetBytePtr(data) else { return nil }
+
+        let bytesPerPixel = screenImage.bitsPerPixel / 8
+        let bytesPerRow = screenImage.bytesPerRow
+        let dataLength = CFDataGetLength(data)
+
+        let minX = Int(imageRect.minX)
+        let minY = Int(imageRect.minY)
+        let maxX = min(Int(imageRect.maxX), screenImage.width)
+        let maxY = min(Int(imageRect.maxY), screenImage.height)
+        let step = max(1, min(maxX - minX, maxY - minY) / 16)
+        var sum: CGFloat = 0
+        var count = 0
+
+        for y in stride(from: minY, to: maxY, by: step) {
+            for x in stride(from: minX, to: maxX, by: step) {
+                let offset = y * bytesPerRow + x * bytesPerPixel
+                guard offset + 3 < dataLength else { continue }
+                let r = CGFloat(bytes[offset + 2]) / 255
+                let g = CGFloat(bytes[offset + 1]) / 255
+                let b = CGFloat(bytes[offset]) / 255
+                let luminance = 0.299 * r + 0.587 * g + 0.114 * b
+                sum += luminance
+                count += 1
+            }
+        }
+        guard count > 0 else { return nil }
+        return sum / CGFloat(count)
+    }
+
     func colorAtViewPoint(_ point: NSPoint) -> NSColor? {
         guard let dataProvider = screenImage.dataProvider,
               let data = dataProvider.data,
@@ -526,12 +659,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
             return rectEdgeHitTest(rect, point: point, tolerance: tolerance)
         case .circle(let rect):
             return ellipseEdgeHitTest(rect, point: point, tolerance: tolerance)
-        case .text(let text, let origin):
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: fontFromElement(element)
-            ]
-            let size = NSString(string: text).size(withAttributes: attributes)
-            let textRect = NSRect(x: origin.x, y: origin.y, width: size.width, height: size.height)
+        case .text(_, let textRect):
             return textRect.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
         }
     }
@@ -583,9 +711,14 @@ class SelectionView: NSView, NSTextFieldDelegate {
                 height: rect.height
             )
             return DrawingElement(type: .circle(rect: newRect), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
-        case .text(let text, let point):
-            let newPoint = NSPoint(x: point.x + delta.x, y: point.y + delta.y)
-            return DrawingElement(type: .text(text: text, point: newPoint), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
+        case .text(let text, let rect):
+            let newRect = NSRect(
+                x: rect.origin.x + delta.x,
+                y: rect.origin.y + delta.y,
+                width: rect.width,
+                height: rect.height
+            )
+            return DrawingElement(type: .text(text: text, rect: newRect), strokeColor: element.strokeColor, fillColor: element.fillColor, lineWidth: element.lineWidth, fontSize: element.fontSize, fontName: element.fontName)
         }
     }
 
@@ -605,28 +738,71 @@ class SelectionView: NSView, NSTextFieldDelegate {
     }
 
     func startTextEntry(at point: NSPoint) {
+        let sel = selectedRect ?? bounds
+        var rect = NSRect(x: point.x, y: point.y - textAreaDefaultHeight, width: textAreaDefaultWidth, height: textAreaDefaultHeight)
+        rect = rect.intersection(sel)
+        if rect.width < textAreaMinWidth { rect.size.width = textAreaMinWidth }
+        if rect.height < textAreaMinHeight { rect.size.height = textAreaMinHeight }
+        rect = rect.intersection(sel)
+        startTextEntry(in: rect)
+    }
+
+    func startTextEntry(in rect: NSRect) {
         activeTextField?.removeFromSuperview()
         activeTextField = nil
 
-        let font = currentTextFont()
-        let fieldHeight = ceil(font.ascender - font.descender) + 4
-        let fieldOrigin = NSPoint(x: point.x, y: point.y - font.ascender)
-        let field = NSTextField(frame: NSRect(x: fieldOrigin.x, y: fieldOrigin.y, width: 200, height: fieldHeight))
+        let clipRect = rect.intersection(selectedRect ?? bounds)
+        let field = NSTextField(frame: clipRect)
         field.delegate = self
         field.isBordered = false
         field.isBezeled = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.placeholderString = "Type text here"
+        let font = currentTextFont()
+        let placeholderColor: NSColor
+        if let luminance = averageLuminanceInViewRect(clipRect) {
+            placeholderColor = luminance < 0.5 ? .white : .black
+        } else {
+            placeholderColor = .gray
+        }
+        (field.cell as? NSTextFieldCell)?.placeholderAttributedString = NSAttributedString(
+            string: "Type text here",
+            attributes: [.foregroundColor: placeholderColor, .font: font]
+        )
         field.textColor = currentStrokeColor
         field.font = font
+        field.cell?.lineBreakMode = .byWordWrapping
+        field.cell?.truncatesLastVisibleLine = false
+        field.cell?.usesSingleLineMode = false
+        field.wantsLayer = true
+        field.layer?.masksToBounds = true
         addSubview(field)
         window?.makeFirstResponder(field)
         activeTextField = field
-        activeTextOrigin = point
+        activeTextRect = clipRect
+        updateTextControlPoints()
     }
     
     func controlTextDidEndEditing(_ notification: Notification) {
+        // If resigning due to clicking a text control point, we must not finish yet -
+        // the field resigns before mouseDown, which would clear state. Defer and skip
+        // finish when we're about to resize via control points.
+        if activeTextField != nil, let rect = activeTextRect, let window {
+            let loc = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            let expanded = controlPointRects(for: rect, size: 8).map { $0.insetBy(dx: -8, dy: -8) }
+            if expanded.contains(where: { $0.contains(loc) }) {
+                isDeferringTextFinishForResize = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    defer { self.isDeferringTextFinishForResize = false }
+                    if self.mode == .resizingTextArea {
+                        return
+                    }
+                    self.finishActiveTextEntry(commit: true)
+                }
+                return
+            }
+        }
         finishActiveTextEntry(commit: true)
     }
 
@@ -636,15 +812,9 @@ class SelectionView: NSView, NSTextFieldDelegate {
         defer { isFinishingTextEntry = false }
         if commit {
             let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty {
-                let font = field.font ?? currentTextFont()
-                let titleRect = field.cell?.titleRect(forBounds: field.bounds) ?? field.bounds
-                let origin = NSPoint(
-                    x: field.frame.minX + titleRect.minX,
-                    y: field.frame.minY + titleRect.minY + font.ascender
-                )
+            if !text.isEmpty, let rect = activeTextRect {
                 let element = DrawingElement(
-                    type: .text(text: text, point: origin),
+                    type: .text(text: text, rect: rect),
                     strokeColor: currentStrokeColor,
                     fillColor: nil,
                     lineWidth: currentLineWidth,
@@ -656,7 +826,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
         }
         field.removeFromSuperview()
         activeTextField = nil
-        activeTextOrigin = nil
+        activeTextRect = nil
+        textControlPoints.removeAll()
         needsDisplay = true
     }
 
@@ -675,7 +846,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
     }
 
     private func clearSelection() {
-        mode = .selecting
+        mode = .creating
         startPoint = nil
         currentPoint = nil
         selectedRect = nil
@@ -684,7 +855,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
         currentTool = .none
         activeTextField?.removeFromSuperview()
         activeTextField = nil
-        activeTextOrigin = nil
+        activeTextRect = nil
+        textControlPoints.removeAll()
         clearToolbar()
         needsDisplay = true
     }

@@ -75,8 +75,21 @@ extension SelectionView {
             return
         }
         
-        // Check if clicking on control points for resizing
-        if currentTool == .move, let _ = selectedRect {
+        // Check if clicking on text area control points when editing
+        if activeTextField != nil, let _ = activeTextRect {
+            let hitAreaExpansion: CGFloat = 8
+            for (index, controlPoint) in textControlPoints.enumerated() {
+                if controlPoint.insetBy(dx: -hitAreaExpansion, dy: -hitAreaExpansion).contains(location) {
+                    window?.makeFirstResponder(self)
+                    mode = .resizingTextArea
+                    resizingTextAreaCorner = index
+                    return
+                }
+            }
+        }
+        
+        // Check if clicking on control points for resizing selection
+        if activeTextField == nil, let _ = selectedRect {
             for (index, controlPoint) in controlPoints.enumerated() {
                 if controlPoint.contains(location) {
                     mode = .resizing
@@ -89,7 +102,7 @@ extension SelectionView {
         // Check if clicking inside selected region
         if let rect = selectedRect, rect.contains(location) {
             if currentTool == .text {
-                startTextEntry(at: location)
+                textAreaDragStart = location
                 return
             }
             if currentTool == .eraser {
@@ -117,7 +130,7 @@ extension SelectionView {
             if currentTool == .none {
                 if let index = drawingElements.lastIndex(where: { elementHitTest($0, point: location, tolerance: 6) }) {
                     selectedElementIndex = index
-                    mode = .elementDragging
+                    mode = .movingElement
                     lastDragPoint = location
                     needsDisplay = true
                     return
@@ -132,16 +145,30 @@ extension SelectionView {
                 drawingStartPoint = location
                 currentDrawingPoints = [location]
             } else if currentTool == .move {
-                // Start dragging
+                // Start dragging only in move mode.
                 selectedElementIndex = nil
-                mode = .dragging
+                mode = .moving
                 dragOffset = NSPoint(x: location.x - rect.origin.x, y: location.y - rect.origin.y)
             }
             return
         }
         
-        // Start new selection (clear previous)
-        mode = .selecting
+        // Start new selection (clear previous) - but not if clicking on text control points
+        if activeTextField != nil, let _ = activeTextRect {
+            let hitAreaExpansion: CGFloat = 8
+            for (index, controlPoint) in textControlPoints.enumerated() {
+                if controlPoint.insetBy(dx: -hitAreaExpansion, dy: -hitAreaExpansion).contains(location) {
+                    window?.makeFirstResponder(self)
+                    mode = .resizingTextArea
+                    resizingTextAreaCorner = index
+                    return
+                }
+            }
+        }
+        if activeTextField != nil {
+            finishActiveTextEntry(commit: true)
+        }
+        mode = .creating
         startPoint = clampedPoint(location)
         currentPoint = clampedPoint(location)
         selectedRect = nil
@@ -149,9 +176,10 @@ extension SelectionView {
         selectedElementIndex = nil
         hoverEraserIndex = nil
         currentTool = .none
+        textAreaDragStart = nil
         activeTextField?.removeFromSuperview()
         activeTextField = nil
-        activeTextOrigin = nil
+        activeTextRect = nil
         aiResultImage = nil
         aiEditRect = nil
         aiIsSelectingEditRect = false
@@ -171,12 +199,33 @@ extension SelectionView {
             needsDisplay = true
             return
         }
+        // Handle text area drag to define
+        if textAreaDragStart != nil {
+            let start = textAreaDragStart!
+            if mode == .creatingText {
+                currentPoint = clampedPoint(location)
+            } else {
+                let dist = hypot(location.x - start.x, location.y - start.y)
+                if dist > 4 {
+                    mode = .creatingText
+                    startPoint = start
+                    currentPoint = clampedPoint(location)
+                }
+            }
+            needsDisplay = true
+            return
+        }
+        
         switch mode {
-        case .selecting:
+        case .creating:
             currentPoint = clampedPoint(location)
             needsDisplay = true
             
-        case .dragging:
+        case .creatingText:
+            currentPoint = clampedPoint(location)
+            needsDisplay = true
+            
+        case .moving:
             NSCursor.closedHand.set()
             guard var rect = selectedRect else { return }
             let oldOrigin = rect.origin
@@ -198,6 +247,14 @@ extension SelectionView {
             updateToolbar()
             needsDisplay = true
             
+        case .resizingTextArea:
+            guard let corner = resizingTextAreaCorner, var rect = activeTextRect else { return }
+            handleTextAreaResize(corner: corner, to: clampedPoint(location), rect: &rect)
+            activeTextRect = rect
+            activeTextField?.frame = rect
+            updateTextControlPoints()
+            needsDisplay = true
+            
         case .drawing:
             if let rect = selectedRect {
                 let clamped = clampedPoint(location, to: rect)
@@ -207,7 +264,7 @@ extension SelectionView {
             }
             needsDisplay = true
             
-        case .elementDragging:
+        case .movingElement:
             NSCursor.closedHand.set()
             if let last = lastDragPoint, let index = selectedElementIndex {
                 let delta = NSPoint(x: location.x - last.x, y: location.y - last.y)
@@ -242,8 +299,32 @@ extension SelectionView {
             }
             return
         }
+        // Handle text area resize end
+        if mode == .resizingTextArea {
+            mode = .active
+            resizingTextAreaCorner = nil
+            return
+        }
+        
+        // Handle text tool: click = default size, drag = defined rect
+        if textAreaDragStart != nil {
+            defer { textAreaDragStart = nil }
+            if mode == .creatingText, let start = startPoint, let current = currentPoint, let sel = selectedRect {
+                let rect = normalizedRect(from: start, to: current)
+                let clamped = rect.intersection(sel).intersection(bounds)
+                if clamped.width >= textAreaMinWidth, clamped.height >= textAreaMinHeight {
+                    startTextEntry(in: clamped)
+                }
+            } else {
+                startTextEntry(at: textAreaDragStart!)
+            }
+            mode = .active
+            needsDisplay = true
+            return
+        }
+        
         switch mode {
-        case .selecting:
+        case .creating:
             guard let start = startPoint, let current = currentPoint else { return }
             
             let minX = min(start.x, current.x)
@@ -258,7 +339,7 @@ extension SelectionView {
                 selectedRect = clampedRect
                 aiEditRect = nil
                 aiResultImage = nil
-                mode = .selected
+                mode = .active
                 currentTool = .move
                 updateControlPoints()
                 setupToolbar(for: clampedRect)
@@ -274,23 +355,23 @@ extension SelectionView {
             }
             needsDisplay = true
             
-        case .dragging:
-            mode = .selected
+        case .moving:
+            mode = .active
             NSCursor.openHand.set()
             
         case .resizing:
-            mode = .selected
+            mode = .active
             resizingCorner = nil
             
         case .drawing:
             finishDrawing()
-            mode = .selected
+            mode = .active
             currentDrawingPoints = []
             drawingStartPoint = nil
             needsDisplay = true
             
-        case .elementDragging:
-            mode = .selected
+        case .movingElement:
+            mode = .active
             lastDragPoint = nil
             NSCursor.openHand.set()
             
@@ -320,14 +401,14 @@ extension SelectionView {
             needsDisplay = true
         }
         if currentTool == .eyedropper, let rect = selectedRect, rect.contains(location),
-           mode != .dragging, mode != .resizing, mode != .elementDragging {
+           mode != .moving, mode != .resizing, mode != .movingElement, mode != .resizingTextArea {
             eyedropperCursor.set()
         }
         if isDrawingTool, let rect = selectedRect, rect.contains(location),
-           mode != .dragging, mode != .resizing, mode != .elementDragging {
+           mode != .moving, mode != .resizing, mode != .movingElement, mode != .resizingTextArea {
             NSCursor.crosshair.set()
         }
-        if currentTool == .move, let rect = selectedRect, rect.contains(location), mode != .dragging, mode != .elementDragging {
+        if currentTool == .move, let rect = selectedRect, rect.contains(location), mode != .moving, mode != .movingElement, mode != .resizingTextArea {
             NSCursor.openHand.set()
         }
         super.mouseMoved(with: event)

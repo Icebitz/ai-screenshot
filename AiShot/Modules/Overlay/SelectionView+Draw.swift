@@ -139,12 +139,13 @@ extension SelectionView {
             }
             context.strokeEllipse(in: rect)
             
-        case .text(let text, let point):
+        case .text(let text, let rect):
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: fontFromElement(element),
                 .foregroundColor: element.strokeColor
             ]
-            NSString(string: text).draw(at: point, withAttributes: attributes)
+            let options: NSString.DrawingOptions = [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
+            (text as NSString).draw(with: rect, options: options, attributes: attributes, context: nil)
         }
     }
 
@@ -180,12 +181,13 @@ extension SelectionView {
             context.stroke(rect)
         case .circle(let rect):
             context.strokeEllipse(in: rect)
-        case .text(let text, let point):
+        case .text(let text, let rect):
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: fontFromElement(element),
                 .foregroundColor: color
             ]
-            NSString(string: text).draw(at: point, withAttributes: attributes)
+            let options: NSString.DrawingOptions = [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
+            (text as NSString).draw(with: rect, options: options, attributes: attributes, context: nil)
         }
         context.restoreGState()
     }
@@ -214,12 +216,13 @@ extension SelectionView {
             context.stroke(rect.insetBy(dx: -2, dy: -2))
         case .circle(let rect):
             context.strokeEllipse(in: rect.insetBy(dx: -2, dy: -2))
-        case .text(let text, let point):
+        case .text(let text, let rect):
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: fontFromElement(element),
                 .foregroundColor: color
             ]
-            NSString(string: text).draw(at: point, withAttributes: attributes)
+            let options: NSString.DrawingOptions = [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
+            (text as NSString).draw(with: rect, options: options, attributes: attributes, context: nil)
         }
         context.restoreGState()
     }
@@ -248,12 +251,8 @@ extension SelectionView {
             rect = NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
         case .rectangle(let rectValue), .circle(let rectValue):
             rect = rectValue
-        case .text(let text, let point):
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: fontFromElement(element)
-            ]
-            let size = NSString(string: text).size(withAttributes: attributes)
-            rect = NSRect(x: point.x, y: point.y, width: size.width, height: size.height)
+        case .text(_, let textRect):
+            rect = textRect
         }
         guard let baseRect = rect else { return }
         let expanded = baseRect.insetBy(dx: -4, dy: -4)
@@ -364,8 +363,8 @@ extension SelectionView {
         context.strokePath()
     }
 
-    func drawControlPoints(for rect: NSRect, in context: CGContext) {
-        let points = controlPointRects(for: rect)
+    func drawControlPoints(for rect: NSRect, in context: CGContext, size: CGFloat = 12) {
+        let points = controlPointRects(for: rect, size: size)
         guard !points.isEmpty else { return }
 
         let fillColor = NSColor(calibratedRed: 0.45, green: 0.86, blue: 1.0, alpha: 1.0)
@@ -516,19 +515,22 @@ extension SelectionView {
             }
             context.strokeEllipse(in: adjustedRect)
             
-        case .text(let text, let point):
+        case .text(let text, let textRect):
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: fontFromElement(element, size: element.fontSize * scaleY),
                 .foregroundColor: element.strokeColor
             ]
-            let adjustedPoint = CGPoint(
-                x: (point.x - offset.x) * scaleX,
-                y: (point.y - offset.y) * scaleY
+            let adjustedRect = CGRect(
+                x: (textRect.origin.x - offset.x) * scaleX,
+                y: (textRect.origin.y - offset.y) * scaleY,
+                width: textRect.width * scaleX,
+                height: textRect.height * scaleY
             )
+            let options: NSString.DrawingOptions = [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
             let graphicsContext = NSGraphicsContext(cgContext: context, flipped: false)
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = graphicsContext
-            NSString(string: text).draw(at: adjustedPoint, withAttributes: attributes)
+            (text as NSString).draw(with: adjustedRect, options: options, attributes: attributes, context: nil)
             NSGraphicsContext.restoreGraphicsState()
         }
     }
