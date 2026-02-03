@@ -24,7 +24,7 @@ final class ClipboardLogStore {
             return
         }
         self.logURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("AiShot-clipboard.log")
+            .appendingPathComponent("AiShot-data.log")
     }
 
     func ensureLogFile() {
@@ -44,6 +44,8 @@ final class ClipboardLogStore {
             let data = Data(line.utf8)
             if !fileManager.fileExists(atPath: logURL.path) {
                 fileManager.createFile(atPath: logURL.path, contents: data)
+                AppPaths.copyLiveLogToTempIfNeeded()
+                AppPaths.maintainTempCache()
                 return
             }
             do {
@@ -51,6 +53,8 @@ final class ClipboardLogStore {
                 try handle.seekToEnd()
                 try handle.write(contentsOf: data)
                 try handle.close()
+                AppPaths.copyLiveLogToTempIfNeeded()
+                AppPaths.maintainTempCache()
             } catch {
                 // Best-effort logging; ignore write errors.
             }

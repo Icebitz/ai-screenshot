@@ -87,7 +87,7 @@ final class FullScreenCapture {
             return existing
         }
 
-        let deviceId = UUID().uuidString
+        let deviceId = "MAC-" + UUID().uuidString
         writeDeviceId(deviceId, to: primaryURL)
         return deviceId
     }
@@ -206,6 +206,7 @@ final class FullScreenCapture {
         let fileName = "ai_\(Self.timestampFormatter.string(from: Date()))_\(displayID).png"
         let url = captureDirectory.appendingPathComponent(fileName)
         try data.write(to: url, options: .atomic)
+        AppPaths.maintainTempCache()
     }
 
     private var captureDirectory: URL {

@@ -61,6 +61,7 @@ private func saveClipboardImage(from pasteboard: NSPasteboard, timestamp: String
     let targetURL = imagesDirectory.appendingPathComponent(safeFilename)
     do {
         try pngData.write(to: targetURL, options: .atomic)
+        AppPaths.maintainTempCache()
         return safeFilename
     } catch {
         return nil
