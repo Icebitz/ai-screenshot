@@ -242,6 +242,9 @@ extension SelectionView {
                 aiEditRect = nil
                 aiIsSelectingEditRect = false
             }
+            if currentTool == .select, nextTool != .select {
+                selectedElementIndex = nil
+            }
             currentTool = nextTool
             
             // Update button states

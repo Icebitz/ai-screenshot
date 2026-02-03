@@ -99,6 +99,34 @@ extension SelectionView {
         return normalized <= 1
     }
 
+    func elementBoundingRect(_ element: DrawingElement) -> NSRect? {
+        switch element.type {
+        case .pen(let points):
+            guard let first = points.first else { return nil }
+            var minX = first.x
+            var minY = first.y
+            var maxX = first.x
+            var maxY = first.y
+            for point in points.dropFirst() {
+                minX = min(minX, point.x)
+                minY = min(minY, point.y)
+                maxX = max(maxX, point.x)
+                maxY = max(maxY, point.y)
+            }
+            return NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        case .line(let start, let end), .arrow(let start, let end):
+            let minX = min(start.x, end.x)
+            let minY = min(start.y, end.y)
+            let maxX = max(start.x, end.x)
+            let maxY = max(start.y, end.y)
+            return NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        case .rectangle(let rect), .ellipse(let rect):
+            return rect
+        case .text(_, let rect):
+            return rect
+        }
+    }
+
     func distanceToSegment(_ p: NSPoint, _ a: NSPoint, _ b: NSPoint) -> CGFloat {
         let abx = b.x - a.x
         let aby = b.y - a.y

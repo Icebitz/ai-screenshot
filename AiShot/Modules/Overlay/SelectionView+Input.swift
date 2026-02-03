@@ -443,16 +443,31 @@ extension SelectionView {
             hoverEraserIndex = nil
             needsDisplay = true
         }
+        var didSetCursor = false
         if currentTool == .eyedropper, let rect = selectedRect, rect.contains(location),
            mode != .moving, mode != .resizing {
             eyedropperCursor.set()
+            didSetCursor = true
         }
         if isToolMode, let rect = selectedRect, rect.contains(location),
            mode != .moving, mode != .resizing {
             NSCursor.crosshair.set()
+            didSetCursor = true
         }
         if currentTool == .move, let rect = selectedRect, rect.contains(location), mode != .moving, mode != .resizing {
             NSCursor.openHand.set()
+            didSetCursor = true
+        }
+        if currentTool == .select, let index = selectedElementIndex,
+           index >= 0, index < drawingElements.count,
+           let rect = elementBoundingRect(drawingElements[index]),
+           rect.contains(location),
+           mode != .moving, mode != .resizing {
+            NSCursor.openHand.set()
+            didSetCursor = true
+        }
+        if !didSetCursor {
+            NSCursor.arrow.set()
         }
         super.mouseMoved(with: event)
     }
