@@ -4,26 +4,21 @@ extension Notification.Name {
     static let overlaySelectionDidChange = Notification.Name("AiShot.OverlaySelectionDidChange")
 }
 
-enum SelectionMode {
-    case creating       // Dragging to create selection
-    case active         // Selection exists, tools visible
-    case moving         // Moving the selection
-    case resizing       // Resizing the selection
-    case drawing        // Drawing shapes/lines
-    case movingElement  // Moving a drawn element
-    case creatingText   // Dragging to create text area
-    case editingText    // Editing text
-    case resizingTextArea  // Resizing text area via control points
+enum ActionMode {
+    case creating
+    case editing
+    case moving
+    case resizing
 }
 
-enum DrawingTool {
-    case none
+enum ToolMode {
     case move
+    case select
     case pen
     case line
     case arrow
     case rectangle
-    case circle
+    case ellipse
     case text
     case eraser
     case eyedropper
@@ -41,7 +36,7 @@ struct DrawingElement {
         case line(start: NSPoint, end: NSPoint)
         case arrow(start: NSPoint, end: NSPoint)
         case rectangle(rect: NSRect)
-        case circle(rect: NSRect)
+        case ellipse(rect: NSRect)
         case text(text: String, rect: NSRect)
     }
     

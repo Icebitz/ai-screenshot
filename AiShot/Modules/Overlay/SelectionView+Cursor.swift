@@ -4,7 +4,7 @@ extension SelectionView {
     override func resetCursorRects() {
         super.resetCursorRects()
         if let rect = selectedRect {
-            if isDrawingTool {
+            if isToolMode {
                 addCursorRect(rect, cursor: .crosshair)
             }
             if currentTool == .eyedropper {

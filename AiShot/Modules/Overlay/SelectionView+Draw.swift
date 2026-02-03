@@ -132,7 +132,7 @@ extension SelectionView {
             }
             context.stroke(rect)
             
-        case .circle(let rect):
+        case .ellipse(let rect):
             if let fillColor = element.fillColor {
                 context.setFillColor(fillColor.cgColor)
                 context.fillEllipse(in: rect)
@@ -179,7 +179,7 @@ extension SelectionView {
             drawArrow(from: start, to: end, in: context, color: color, lineWidth: lineWidth)
         case .rectangle(let rect):
             context.stroke(rect)
-        case .circle(let rect):
+        case .ellipse(let rect):
             context.strokeEllipse(in: rect)
         case .text(let text, let rect):
             let attributes: [NSAttributedString.Key: Any] = [
@@ -214,7 +214,7 @@ extension SelectionView {
             drawArrow(from: start, to: end, in: context, color: color, lineWidth: max(2, element.lineWidth))
         case .rectangle(let rect):
             context.stroke(rect.insetBy(dx: -2, dy: -2))
-        case .circle(let rect):
+        case .ellipse(let rect):
             context.strokeEllipse(in: rect.insetBy(dx: -2, dy: -2))
         case .text(let text, let rect):
             let attributes: [NSAttributedString.Key: Any] = [
@@ -249,7 +249,7 @@ extension SelectionView {
             let maxX = max(start.x, end.x)
             let maxY = max(start.y, end.y)
             rect = NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-        case .rectangle(let rectValue), .circle(let rectValue):
+        case .rectangle(let rectValue), .ellipse(let rectValue):
             rect = rectValue
         case .text(_, let textRect):
             rect = textRect
@@ -266,7 +266,7 @@ extension SelectionView {
 
     private func elementStrokeColor(_ element: DrawingElement) -> NSColor {
         switch element.type {
-        case .pen, .line, .arrow, .rectangle, .circle, .text:
+        case .pen, .line, .arrow, .rectangle, .ellipse, .text:
             return element.strokeColor
         }
     }
@@ -318,7 +318,7 @@ extension SelectionView {
                 }
                 context.stroke(rect)
             }
-        case .circle:
+        case .ellipse:
             if let start = drawingStartPoint, let current = currentDrawingPoints.last {
                 let rect = normalizedRect(from: start, to: current)
                 if let fillColor = currentFillColor {
@@ -327,7 +327,7 @@ extension SelectionView {
                 }
                 context.strokeEllipse(in: rect)
             }
-        case .text, .eraser, .eyedropper, .move, .none, .ai:
+        case .text, .eraser, .eyedropper, .move, .select, .ai:
             break
         }
     }
@@ -502,7 +502,7 @@ extension SelectionView {
             }
             context.stroke(adjustedRect)
             
-        case .circle(let rect):
+        case .ellipse(let rect):
             let adjustedRect = CGRect(
                 x: (rect.origin.x - offset.x) * scaleX,
                 y: (rect.origin.y - offset.y) * scaleY,

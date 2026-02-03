@@ -47,14 +47,14 @@ extension SelectionView {
         xOffset += buttonSpacing
 
         // Tool buttons (right)
-        let tools: [(String, DrawingTool)] = [
+        let tools: [(String, ToolMode)] = [
             ("arrow.up.and.down.and.arrow.left.and.right", .move),
-            ("cursorarrow", .none),
+            ("cursorarrow", .select),
             ("scribble", .pen),
             ("line.diagonal", .line),
             ("arrow.up.right", .arrow),
             ("rectangle", .rectangle),
-            ("circle", .circle),
+            ("circle", .ellipse),
             ("textformat", .text),
             ("eraser", .eraser),
             ("sparkles", .ai)
@@ -169,7 +169,7 @@ extension SelectionView {
         updateAIPromptVisibility()
     }
 
-    private func createToolButton(icon: String, tool: DrawingTool, x: CGFloat, y: CGFloat) -> ToolbarButton {
+    private func createToolButton(icon: String, tool: ToolMode, x: CGFloat, y: CGFloat) -> ToolbarButton {
         let button = ToolbarButton(frame: NSRect(x: x, y: y, width: toolButtonWidth, height: 32))
         if let customImage = NSImage(named: icon) {
             button.image = customImage
@@ -186,7 +186,7 @@ extension SelectionView {
         button.contentTintColor = NSColor.white
         
         button.accentColor = NSColor(calibratedRed: 0.20, green: 0.64, blue: 1.0, alpha: 1.0)
-        button.isActiveAppearance = (tool == .none)
+        button.isActiveAppearance = (tool == .move)
         
         return button
     }
@@ -232,10 +232,10 @@ extension SelectionView {
         if let index = toolButtons.firstIndex(where: { $0 === senderButton }),
            index < toolButtonTypes.count {
             let nextTool = toolButtonTypes[index]
-            if currentTool == DrawingTool.text, nextTool != .text {
+            if currentTool == ToolMode.text, nextTool != .text {
                 finishActiveTextEntry(commit: true)
             }
-            if currentTool == DrawingTool.eraser, nextTool != .eraser {
+            if currentTool == ToolMode.eraser, nextTool != .eraser {
                 hoverEraserIndex = nil
             }
             if currentTool == .ai, nextTool != .ai {
