@@ -29,16 +29,19 @@ extension SelectionView {
         // Action buttons (left)
         let contentWidth = toolbarContentWidth()
         var xOffset = toolbarGroupStartX(toolbarWidth: toolbarFrame.width, contentWidth: contentWidth)
-        let actionIcons = ["doc.on.doc", "internaldrive", "xmark"]
-        let actionSelectors: [Selector] = [#selector(copyToClipboard), #selector(saveImage), #selector(closeOverlay)]
+        let actions: [(icon: String, selector: Selector, tooltip: String)] = [
+            ("doc.on.doc", #selector(copyToClipboard), "Copy (Cmd+C)"),
+            ("internaldrive", #selector(saveImage), "Save (Cmd+S)"),
+            ("xmark", #selector(closeOverlay), "Close (Esc)")
+        ]
         actionButtons = []
-        for (index, icon) in actionIcons.enumerated() {
-            let button = createActionButton(icon: icon, x: xOffset, y: 8, action: actionSelectors[index])
-            button.groupPosition = groupPosition(for: index, count: actionIcons.count)
+        for (index, action) in actions.enumerated() {
+            let button = createActionButton(icon: action.icon, x: xOffset, y: 8, action: action.selector, tooltip: action.tooltip)
+            button.groupPosition = groupPosition(for: index, count: actions.count)
             actionButtons.append(button)
             toolbar.addSubview(button)
             xOffset += actionButtonWidth
-            if index < actionIcons.count - 1 {
+            if index < actions.count - 1 {
                 xOffset += intraGroupSpacing
             }
         }
@@ -184,6 +187,7 @@ extension SelectionView {
         button.action = #selector(toolSelected(_:))
         button.tag = tool.hashValue
         button.contentTintColor = NSColor.white
+        button.toolTip = toolTooltip(for: tool)
         
         button.accentColor = NSColor(calibratedRed: 0.20, green: 0.64, blue: 1.0, alpha: 1.0)
         button.isActiveAppearance = (tool == .move)
@@ -207,7 +211,7 @@ extension SelectionView {
         return button
     }
     
-    private func createActionButton(icon: String, x: CGFloat, y: CGFloat, action: Selector) -> ToolbarButton {
+    private func createActionButton(icon: String, x: CGFloat, y: CGFloat, action: Selector, tooltip: String) -> ToolbarButton {
         let button = ToolbarButton(frame: NSRect(x: x, y: y, width: actionButtonWidth, height: 32))
         if let customImage = NSImage(named: icon) {
             button.image = customImage
@@ -223,6 +227,7 @@ extension SelectionView {
         button.target = self
         button.action = action
         button.contentTintColor = NSColor.white
+        button.toolTip = tooltip
         
         return button
     }
@@ -232,26 +237,29 @@ extension SelectionView {
         if let index = toolButtons.firstIndex(where: { $0 === senderButton }),
            index < toolButtonTypes.count {
             let nextTool = toolButtonTypes[index]
-            if currentTool == ToolMode.text, nextTool != .text {
-                finishActiveTextEntry(commit: true)
-            }
-            if currentTool == ToolMode.eraser, nextTool != .eraser {
-                hoverEraserIndex = nil
-            }
-            if currentTool == .ai, nextTool != .ai {
-                aiEditRect = nil
-                aiIsSelectingEditRect = false
-            }
-            if currentTool == .select, nextTool != .select {
-                selectedElementIndex = nil
-            }
-            currentTool = nextTool
-            
-            // Update button states
-            updateToolButtonStates()
-            
-            needsDisplay = true
+            activateTool(nextTool)
         }
+    }
+
+    func activateTool(_ nextTool: ToolMode) {
+        guard currentTool != nextTool else { return }
+        if currentTool == .text, nextTool != .text {
+            finishActiveTextEntry(commit: true)
+        }
+        if currentTool == .eraser, nextTool != .eraser {
+            hoverEraserIndex = nil
+        }
+        if currentTool == .ai, nextTool != .ai {
+            aiEditRect = nil
+            aiIsSelectingEditRect = false
+        }
+        if currentTool == .select, nextTool != .select {
+            selectedElementIndex = nil
+        }
+        currentTool = nextTool
+        updateToolButtonStates()
+        window?.invalidateCursorRects(for: self)
+        needsDisplay = true
     }
 
     private func toolbarFrameForSelection(_ rect: NSRect, y: CGFloat) -> NSRect {
@@ -344,5 +352,63 @@ extension SelectionView {
         if index == 0 { return .first }
         if index == count - 1 { return .last }
         return .middle
+    }
+
+    private func toolTooltip(for tool: ToolMode) -> String {
+        return "\(toolDisplayName(for: tool)) (\(toolShortcutKey(for: tool)))"
+    }
+
+    private func toolDisplayName(for tool: ToolMode) -> String {
+        switch tool {
+        case .move:
+            return "Move"
+        case .select:
+            return "Select"
+        case .pen:
+            return "Pen"
+        case .line:
+            return "Line"
+        case .arrow:
+            return "Arrow"
+        case .rectangle:
+            return "Rectangle"
+        case .ellipse:
+            return "Ellipse"
+        case .text:
+            return "Text"
+        case .eraser:
+            return "Eraser"
+        case .eyedropper:
+            return "Eyedropper"
+        case .ai:
+            return "AI"
+        }
+    }
+
+    private func toolShortcutKey(for tool: ToolMode) -> String {
+        switch tool {
+        case .move:
+            return "V"
+        case .select:
+            return "M"
+        case .pen:
+            return "P"
+        case .line:
+            return "L"
+        case .arrow:
+            return "W"
+        case .rectangle:
+            return "R"
+        case .ellipse:
+            return "C"
+        case .text:
+            return "T"
+        case .eraser:
+            return "E"
+        case .eyedropper:
+            return "I"
+        case .ai:
+            return "A"
+        }
     }
 }

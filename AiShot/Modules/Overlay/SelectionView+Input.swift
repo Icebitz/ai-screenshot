@@ -26,6 +26,12 @@ extension SelectionView {
     }
     
     override func keyDown(with event: NSEvent) {
+        if handleCommandShortcut(event) {
+            return
+        }
+        if handleToolShortcut(event) {
+            return
+        }
         if event.keyCode == 53 { // ESC key
             if currentTool == .ai {
                 currentTool = .move
@@ -45,12 +51,66 @@ extension SelectionView {
             } else {
                 super.keyDown(with: event)
             }
-        } else if event.modifierFlags.contains(.command),
-                    event.charactersIgnoringModifiers?.lowercased() == "z" {
-            undoLastDrawing()
         } else {
             super.keyDown(with: event)
         }
+    }
+
+    private func handleCommandShortcut(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.contains(.command),
+              let key = event.charactersIgnoringModifiers?.lowercased()
+        else {
+            return false
+        }
+        switch key {
+        case "c":
+            copyToClipboard()
+            return true
+        case "s":
+            saveImage()
+            return true
+        case "z":
+            undoLastDrawing()
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func handleToolShortcut(_ event: NSEvent) -> Bool {
+        let disallowed: NSEvent.ModifierFlags = [.command, .option, .control, .function]
+        if !event.modifierFlags.intersection(disallowed).isEmpty {
+            return false
+        }
+        guard let key = event.charactersIgnoringModifiers?.lowercased() else { return false }
+        let tool: ToolMode?
+        switch key {
+        case "v":
+            tool = .move
+        case "m":
+            tool = .select
+        case "p":
+            tool = .pen
+        case "l":
+            tool = .line
+        case "w":
+            tool = .arrow
+        case "r":
+            tool = .rectangle
+        case "c":
+            tool = .ellipse
+        case "t":
+            tool = .text
+        case "a":
+            tool = .ai
+        case "e":
+            tool = .eraser
+        default:
+            tool = nil
+        }
+        guard let nextTool = tool else { return false }
+        activateTool(nextTool)
+        return true
     }
 
     override func mouseDown(with event: NSEvent) {
