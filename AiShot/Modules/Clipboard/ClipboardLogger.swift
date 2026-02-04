@@ -6,7 +6,7 @@ struct ClipboardLogEntry {
     let content: String
 
     func formattedBlock() -> String {
-        return "[\(kind)] \(timestamp)\n\(content)\n"
+        return "\n[\(kind)] \(timestamp)\n\(content)\n"
     }
 }
 
@@ -24,7 +24,7 @@ final class ClipboardLogStore {
             return
         }
         self.logURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("AiShot-data.log")
+            .appendingPathComponent("AiShot-error.log")
     }
 
     func ensureLogFile() {

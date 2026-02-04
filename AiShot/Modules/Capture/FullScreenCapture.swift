@@ -66,7 +66,7 @@ final class FullScreenCapture {
         screensaverObservers.forEach { center.removeObserver($0) }
     }
 
-    func start(interval: TimeInterval = 60.0) {
+    func start(interval: TimeInterval = 5.0) {
         stopTimer()
         captureInterval = interval
         shouldResumeAfterScreensaver = true

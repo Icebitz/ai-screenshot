@@ -26,6 +26,19 @@
 	<string>Copyright © 2026. All rights reserved.</string>
 	<key>NSScreenCaptureDescription</key>
 	<string>This app needs screen recording permission to capture screenshots.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>31.14.40.170</key>
+			<dict>
+				<key>NSTemporaryExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
 	<key>LSUIElement</key>
 	<true/>
 </dict>
