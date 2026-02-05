@@ -28,12 +28,6 @@ Install the latest release to `/Applications`:
 curl -fsSL https://raw.githubusercontent.com/Icebitz/ai-screenshot/main/scripts/install.sh | bash
 ```
 
-Or, from a clone of this repo:
-
-```bash
-scripts/install.sh
-```
-
 The script downloads the AiShot zip from [GitHub releases](https://github.com/Icebitz/ai-screenshot/releases), extracts it, installs to `/Applications`, removes Gatekeeper quarantine, and launches the app. Requires `curl`, `unzip`, and macOS.
 
 ## Version
