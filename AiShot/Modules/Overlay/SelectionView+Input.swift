@@ -243,7 +243,7 @@ extension SelectionView {
             }
             if isToolMode {
                 // Start drawing
-                mode = .creating
+                mode = .drawing
                 drawingStartPoint = location
                 currentDrawingPoints = [location]
             } else if currentTool == .move {

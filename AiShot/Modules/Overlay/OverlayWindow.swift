@@ -192,7 +192,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         drawDimOverlay(in: context)
         
         // Draw selection rectangle
-        if let start = startPoint, let current = currentPoint, mode == .creating, selectedRect == nil {
+        if let start = startPoint, let current = currentPoint, (mode == .creating || mode == .selecting), selectedRect == nil {
             let rect = normalizedRect(from: start, to: current)
             drawSelectionArea(rect, in: context)
             drawCenterGuides(for: rect, in: context)
@@ -210,7 +210,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
             drawElementHighlights(in: context)
             
             // Draw current drawing
-                if mode == .creating, drawingStartPoint != nil {
+                if (mode == .creating || mode == .drawing), drawingStartPoint != nil {
                     drawCurrentDrawing(in: context)
                 }
                 if aiIsSendingPrompt, currentTool == .ai {
