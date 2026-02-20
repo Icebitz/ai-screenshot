@@ -327,7 +327,7 @@ extension SelectionView {
                 }
                 context.strokeEllipse(in: rect)
             }
-        case .text, .eraser, .eyedropper, .move, .select, .ai:
+        case .none, .text, .eraser, .eyedropper, .move, .select, .ai:
             break
         }
     }

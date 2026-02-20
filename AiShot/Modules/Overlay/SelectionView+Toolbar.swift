@@ -382,6 +382,8 @@ extension SelectionView {
             return "Eyedropper"
         case .ai:
             return "AI"
+        case .none:
+            return ""
         }
     }
 
@@ -409,6 +411,8 @@ extension SelectionView {
             return "I"
         case .ai:
             return "A"
+        case .none:
+            return ""
         }
     }
 }

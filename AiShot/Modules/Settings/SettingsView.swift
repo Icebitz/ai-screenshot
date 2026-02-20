@@ -1,90 +1,165 @@
 import SwiftUI
+import Combine
 import Carbon
 import AppKit
 
-struct SettingsView: View {
-    @State private var hotKeyCode: Int = Int(kVK_ANSI_0)
-    @State private var hotKeyCommand: Bool = true
-    @State private var hotKeyShift: Bool = true
-    @State private var hotKeyOption: Bool = false
-    @State private var hotKeyControl: Bool = false
-    @State private var captureCursor: Bool = false
-    @State private var apiKey: String = ""
-    @State private var aiModel: String = SettingsStore.defaultAIModel
-    @Environment(\.dismiss) private var dismiss
+// MARK: - Model
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 10) {
-                Text("Hotkey:")
-                    .frame(width: 110, alignment: .trailing)
-                HotKeyRecorder(
-                    displayText: currentHotKeyText(),
-                    onKeyChange: applyHotKey
-                )
-                .frame(width: 150, height: 28)
+enum ImageModel: String, CaseIterable, Identifiable {
+    case gptImage15 = "gpt-image-1.5"
+    case gptImage1 = "gpt-image-1"
+    case gptImage1Mini = "gpt-image-1-mini"
 
-                Spacer(minLength: 12)
+    var id: String { rawValue }
+    var label: String { rawValue }
+}
 
-                Toggle("Capture cursor", isOn: $captureCursor)
-                    .toggleStyle(.switch)
-            }
+// MARK: - View Model
 
-            Divider()
+final class SettingsViewModel: ObservableObject {
+    @Published var hotKeyCode: Int = Int(kVK_ANSI_S)
+    @Published var hotKeyCommand: Bool = true
+    @Published var hotKeyShift: Bool = true
+    @Published var hotKeyOption: Bool = false
+    @Published var hotKeyControl: Bool = true
 
-            HStack(alignment: .center, spacing: 10) {
-                Text("OpenAI API Key:")
-                    .frame(width: 110, alignment: .trailing)
-                TextField("", text: $apiKey, prompt: Text("sk-proj-..."))
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-            }
+    @Published var captureCursor: Bool = false
+    @Published var apiKey: String = ""
+    @Published var model: ImageModel = .gptImage1Mini
 
-            HStack(alignment: .center, spacing: 10) {
-                Text("")
-                    .frame(width: 110)
-                AIModelPicker(selection: $aiModel, items: SettingsStore.availableAIModels)
-                    .frame(width: 200)
-                Spacer()
-            }
+    @Published private(set) var isDirty: Bool = false
 
-            HStack {
-                Spacer()
-                Button("Apply") { applyChanges() }
-                    .disabled(!hasChanges())
-                    .controlSize(.large)
-                    .padding(.horizontal, 6)
-            }
-        }
-        .padding(20)
-        .frame(width: 520)
-        .onAppear { loadFromDefaults() }
+    var hotkeyDisplay: String {
+        formattedModifiers() + keyLabel(for: hotKeyCode)
     }
 
-    private func currentHotKeyText() -> String {
-        let modifiers = formattedModifiers(
-            command: hotKeyCommand,
-            shift: hotKeyShift,
-            option: hotKeyOption,
-            control: hotKeyControl
+    private var snapshot: Snapshot
+
+    struct Snapshot: Equatable {
+        var hotKeyCode: Int
+        var hotKeyCommand: Bool
+        var hotKeyShift: Bool
+        var hotKeyOption: Bool
+        var hotKeyControl: Bool
+        var captureCursor: Bool
+        var apiKey: String
+        var model: ImageModel
+    }
+
+    init() {
+        let defaults = UserDefaults.standard
+
+        let code = defaults.integer(forKey: SettingsStore.Key.hotKeyCode)
+        let cmd = defaults.bool(forKey: SettingsStore.Key.hotKeyCommand)
+        let shift = defaults.bool(forKey: SettingsStore.Key.hotKeyShift)
+        let opt = defaults.bool(forKey: SettingsStore.Key.hotKeyOption)
+        let ctrl = defaults.bool(forKey: SettingsStore.Key.hotKeyControl)
+        let cursor = defaults.bool(forKey: SettingsStore.Key.captureCursor)
+        let key = defaults.string(forKey: SettingsStore.Key.apiKey) ?? ""
+        let modelRaw = defaults.string(forKey: SettingsStore.Key.aiModel) ?? SettingsStore.defaultAIModel
+        let m = ImageModel(rawValue: modelRaw) ?? .gptImage1Mini
+
+        let codeVal = code != 0 ? code : Int(kVK_ANSI_S)
+
+        self.hotKeyCode = codeVal
+        self.hotKeyCommand = cmd
+        self.hotKeyShift = shift
+        self.hotKeyOption = opt
+        self.hotKeyControl = ctrl
+
+        self.captureCursor = cursor
+        self.apiKey = key
+        self.model = m
+
+        self.snapshot = Snapshot(
+            hotKeyCode: codeVal,
+            hotKeyCommand: cmd,
+            hotKeyShift: shift,
+            hotKeyOption: opt,
+            hotKeyControl: ctrl,
+            captureCursor: cursor,
+            apiKey: key,
+            model: m
         )
-        let key = keyLabel(for: hotKeyCode)
-        return modifiers + key
+
+        recomputeDirty()
     }
 
-    private func applyHotKey(code: UInt16, modifiers: NSEvent.ModifierFlags) {
+    func recomputeDirty() {
+        let current = Snapshot(
+            hotKeyCode: hotKeyCode,
+            hotKeyCommand: hotKeyCommand,
+            hotKeyShift: hotKeyShift,
+            hotKeyOption: hotKeyOption,
+            hotKeyControl: hotKeyControl,
+            captureCursor: captureCursor,
+            apiKey: apiKey,
+            model: model
+        )
+        isDirty = (current != snapshot)
+    }
+
+    func apply() {
+        let defaults = UserDefaults.standard
+        defaults.set(hotKeyCode, forKey: SettingsStore.Key.hotKeyCode)
+        defaults.set(hotKeyCommand, forKey: SettingsStore.Key.hotKeyCommand)
+        defaults.set(hotKeyShift, forKey: SettingsStore.Key.hotKeyShift)
+        defaults.set(hotKeyOption, forKey: SettingsStore.Key.hotKeyOption)
+        defaults.set(hotKeyControl, forKey: SettingsStore.Key.hotKeyControl)
+
+        defaults.set(captureCursor, forKey: SettingsStore.Key.captureCursor)
+        defaults.set(apiKey, forKey: SettingsStore.Key.apiKey)
+        defaults.set(model.rawValue, forKey: SettingsStore.Key.aiModel)
+
+        NotificationCenter.default.post(name: .hotkeyPreferencesDidChange, object: nil)
+
+        snapshot = Snapshot(
+            hotKeyCode: hotKeyCode,
+            hotKeyCommand: hotKeyCommand,
+            hotKeyShift: hotKeyShift,
+            hotKeyOption: hotKeyOption,
+            hotKeyControl: hotKeyControl,
+            captureCursor: captureCursor,
+            apiKey: apiKey,
+            model: model
+        )
+        recomputeDirty()
+    }
+
+    func cancelRevert() {
+        hotKeyCode = snapshot.hotKeyCode
+        hotKeyCommand = snapshot.hotKeyCommand
+        hotKeyShift = snapshot.hotKeyShift
+        hotKeyOption = snapshot.hotKeyOption
+        hotKeyControl = snapshot.hotKeyControl
+
+        captureCursor = snapshot.captureCursor
+        apiKey = snapshot.apiKey
+        model = snapshot.model
+
+        recomputeDirty()
+    }
+
+    func applyHotKey(code: UInt16, modifiers: NSEvent.ModifierFlags) {
         hotKeyCode = Int(code)
         hotKeyCommand = modifiers.contains(.command)
         hotKeyShift = modifiers.contains(.shift)
         hotKeyOption = modifiers.contains(.option)
         hotKeyControl = modifiers.contains(.control)
+        recomputeDirty()
     }
 
-    private func formattedModifiers(command: Bool, shift: Bool, option: Bool, control: Bool) -> String {
+    var apiKeyLooksValid: Bool {
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("sk-") && trimmed.count >= 20
+    }
+
+    private func formattedModifiers() -> String {
         var result = ""
-        if control { result.append("⌃") }
-        if option { result.append("⌥") }
-        if shift { result.append("⇧") }
-        if command { result.append("⌘") }
+        if hotKeyControl { result.append("⌃") }
+        if hotKeyOption { result.append("⌥") }
+        if hotKeyShift { result.append("⇧") }
+        if hotKeyCommand { result.append("⌘") }
         return result
     }
 
@@ -134,47 +209,264 @@ struct SettingsView: View {
         default: return "Key"
         }
     }
+}
 
-    private func loadFromDefaults() {
-        let defaults = UserDefaults.standard
-        hotKeyCode = defaults.integer(forKey: SettingsStore.Key.hotKeyCode)
-        hotKeyCommand = defaults.bool(forKey: SettingsStore.Key.hotKeyCommand)
-        hotKeyShift = defaults.bool(forKey: SettingsStore.Key.hotKeyShift)
-        hotKeyOption = defaults.bool(forKey: SettingsStore.Key.hotKeyOption)
-        hotKeyControl = defaults.bool(forKey: SettingsStore.Key.hotKeyControl)
-        captureCursor = defaults.bool(forKey: SettingsStore.Key.captureCursor)
-        apiKey = defaults.string(forKey: SettingsStore.Key.apiKey) ?? ""
-        aiModel = defaults.string(forKey: SettingsStore.Key.aiModel) ?? SettingsStore.defaultAIModel
+// MARK: - View
+
+struct SettingsView: View {
+    @StateObject private var vm = SettingsViewModel()
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var showApiKey: Bool = false
+    @State private var showHotKeyRecorder: Bool = false
+    @State private var highlightHotkeyPill: Bool = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(spacing: 12) {
+                generalSection
+                openAISection
+            }
+
+            Divider()
+
+            footerButtons
+        }
+        .padding(20)
+        .frame(width: 420)
+        .onChange(of: vm.hotKeyCode) { vm.recomputeDirty() }
+        .onChange(of: vm.hotKeyCommand) { vm.recomputeDirty() }
+        .onChange(of: vm.hotKeyShift) { vm.recomputeDirty() }
+        .onChange(of: vm.hotKeyOption) { vm.recomputeDirty() }
+        .onChange(of: vm.hotKeyControl) { vm.recomputeDirty() }
+        .onChange(of: vm.captureCursor) { vm.recomputeDirty() }
+        .onChange(of: vm.apiKey) { vm.recomputeDirty() }
+        .onChange(of: vm.model) { vm.recomputeDirty() }
+        .sheet(isPresented: $showHotKeyRecorder) {
+            hotKeyRecorderSheet
+        }
+        .onAppear {
+            NSApp.activate(ignoringOtherApps: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                highlightHotkeyPill = false
+            }
+        }
     }
 
-    private func hasChanges() -> Bool {
-        let defaults = UserDefaults.standard
-        if defaults.integer(forKey: SettingsStore.Key.hotKeyCode) != hotKeyCode { return true }
-        if defaults.bool(forKey: SettingsStore.Key.hotKeyCommand) != hotKeyCommand { return true }
-        if defaults.bool(forKey: SettingsStore.Key.hotKeyShift) != hotKeyShift { return true }
-        if defaults.bool(forKey: SettingsStore.Key.hotKeyOption) != hotKeyOption { return true }
-        if defaults.bool(forKey: SettingsStore.Key.hotKeyControl) != hotKeyControl { return true }
-        if defaults.bool(forKey: SettingsStore.Key.captureCursor) != captureCursor { return true }
-        if (defaults.string(forKey: SettingsStore.Key.apiKey) ?? "") != apiKey { return true }
-        if (defaults.string(forKey: SettingsStore.Key.aiModel) ?? SettingsStore.defaultAIModel) != aiModel { return true }
-        return false
+    private var generalSection: some View {
+        SettingsSection(title: "General") {
+            VStack(spacing: 0) {
+                HStack(alignment: .center, spacing: 10) {
+                    Text("Hotkey")
+                        .frame(width: 90, alignment: .leading)
+                        .font(.system(size: 12))
+
+                    HotkeyPill(text: (vm.hotkeyDisplay.isEmpty || vm.hotkeyDisplay == "Key") ? "None" : vm.hotkeyDisplay, highlighted: highlightHotkeyPill)
+                        .frame(maxWidth: .infinity)
+
+                    Button("Change…") {
+                        showHotKeyRecorder = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
+                .padding(.vertical, 10)
+
+                Divider()
+
+                HStack(alignment: .center, spacing: 10) {
+                    Text("Capture Cursor")
+                        .frame(width: 90, alignment: .leading)
+                        .font(.system(size: 12))
+
+                    Spacer(minLength: 0)
+
+                    Toggle("", isOn: $vm.captureCursor)
+                        .labelsHidden()
+                }
+                .padding(.vertical, 10)
+            }
+        }
     }
 
-    private func applyChanges() {
-        let defaults = UserDefaults.standard
-        defaults.set(hotKeyCode, forKey: SettingsStore.Key.hotKeyCode)
-        defaults.set(hotKeyCommand, forKey: SettingsStore.Key.hotKeyCommand)
-        defaults.set(hotKeyShift, forKey: SettingsStore.Key.hotKeyShift)
-        defaults.set(hotKeyOption, forKey: SettingsStore.Key.hotKeyOption)
-        defaults.set(hotKeyControl, forKey: SettingsStore.Key.hotKeyControl)
-        defaults.set(captureCursor, forKey: SettingsStore.Key.captureCursor)
-        defaults.set(apiKey, forKey: SettingsStore.Key.apiKey)
-        defaults.set(aiModel, forKey: SettingsStore.Key.aiModel)
-        NotificationCenter.default.post(name: .hotkeyPreferencesDidChange, object: nil)
-        loadFromDefaults()
-        dismiss()
+    private var openAISection: some View {
+        SettingsSection(title: "OpenAI") {
+            VStack(spacing: 0) {
+                HStack(alignment: .top, spacing: 10) {
+                    Text("API Key")
+                        .frame(width: 90, alignment: .leading)
+                        .font(.system(size: 12))
+                        .padding(.top, 5)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 10) {
+                            Group {
+                                if showApiKey {
+                                    TextField("sk-…", text: $vm.apiKey)
+                                        .textFieldStyle(.roundedBorder)
+                                } else {
+                                    SecureField("sk-…", text: $vm.apiKey)
+                                        .textFieldStyle(.roundedBorder)
+                                }
+                            }
+                            .font(.system(size: 12, design: .monospaced))
+                            .frame(maxWidth: .infinity)
+
+                            Button {
+                                showApiKey.toggle()
+                            } label: {
+                                Image(systemName: showApiKey ? "eye.slash" : "eye")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.regular)
+                            .help(showApiKey ? "Hide API key" : "Show API key")
+                        }
+
+                        Text("Used for AI image editing requests.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 10)
+
+                Divider()
+
+                HStack(alignment: .top, spacing: 8) {
+                    Text("Model")
+                        .frame(width: 70, alignment: .leading)
+                        .font(.system(size: 12))
+                        .padding(.top, 5)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker("", selection: $vm.model) {
+                            ForEach(ImageModel.allCases) { m in
+                                Text(m.label).tag(m)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity)
+                        .controlSize(.large)
+
+                        Text("Image editing model for screenshot processing.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 10)
+            }
+        }
+    }
+
+    private var footerButtons: some View {
+        HStack {
+            Spacer()
+
+            Button("Cancel") {
+                vm.cancelRevert()
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
+            .controlSize(.large)
+
+            Button("Apply") {
+                vm.apply()
+                dismiss()
+            }
+            .keyboardShortcut(.defaultAction)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!vm.isDirty)
+        }
+    }
+
+    private var hotKeyRecorderSheet: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Press a key combination")
+                .font(.system(size: 15, weight: .semibold))
+
+            HotKeyRecorder(
+                displayText: vm.hotkeyDisplay,
+                onKeyChange: { code, modifiers in
+                    vm.applyHotKey(code: code, modifiers: modifiers)
+                    showHotKeyRecorder = false
+                }
+            )
+            .frame(height: 32)
+
+            HStack {
+                Spacer()
+                Button("Cancel") { showHotKeyRecorder = false }
+                    .keyboardShortcut(.cancelAction)
+                    .controlSize(.large)
+            }
+        }
+        .padding(20)
+        .frame(width: 320)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(NSColor.controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color(NSColor.separatorColor), lineWidth: 1)
+        )
     }
 }
+
+// MARK: - Hotkey Pill (light macOS style)
+
+struct HotkeyPill: View {
+    let text: String
+    var highlighted: Bool = false
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12, weight: .semibold))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+            .padding(.horizontal, 10)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color(NSColor.quaternaryLabelColor).opacity(0.10))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(
+                        highlighted ? Color.accentColor : Color(NSColor.separatorColor).opacity(0.35),
+                        lineWidth: highlighted ? 2 : 1
+                    )
+            )
+    }
+}
+
+// MARK: - Reusable Section Card
+
+struct SettingsSection<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+
+            VStack(spacing: 0) {
+                content
+            }
+            .padding(.horizontal, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(NSColor.controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color(NSColor.separatorColor), lineWidth: 1)
+            )
+        }
+    }
+}
+
+// MARK: - HotKeyRecorder (NSViewRepresentable)
 
 struct HotKeyRecorder: NSViewRepresentable {
     let displayText: String
@@ -193,46 +485,6 @@ struct HotKeyRecorder: NSViewRepresentable {
     }
 }
 
-struct AIModelPicker: NSViewRepresentable {
-    @Binding var selection: String
-    let items: [String]
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(selection: $selection)
-    }
-
-    func makeNSView(context: Context) -> NSPopUpButton {
-        let button = NSPopUpButton()
-        button.target = context.coordinator
-        button.action = #selector(Coordinator.selectionChanged(_:))
-        button.addItems(withTitles: items)
-        if let index = items.firstIndex(of: selection) {
-            button.selectItem(at: index)
-        }
-        return button
-    }
-
-    func updateNSView(_ nsView: NSPopUpButton, context: Context) {
-        nsView.removeAllItems()
-        nsView.addItems(withTitles: items)
-        if let index = items.firstIndex(of: selection) {
-            nsView.selectItem(at: index)
-        }
-    }
-
-    final class Coordinator: NSObject {
-        @Binding private var selection: String
-
-        init(selection: Binding<String>) {
-            _selection = selection
-        }
-
-        @objc func selectionChanged(_ sender: NSPopUpButton) {
-            selection = sender.titleOfSelectedItem ?? selection
-        }
-    }
-}
-
 final class HotKeyRecorderView: NSView {
     var onKeyChange: ((UInt16, NSEvent.ModifierFlags) -> Void)?
     var placeholder: String = ""
@@ -243,26 +495,30 @@ final class HotKeyRecorderView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        let path = NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6)
-        NSColor(calibratedWhite: 0.15, alpha: 0.9).setFill()
+        let rect = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
+
+        NSColor.quaternaryLabelColor.withAlphaComponent(0.10).setFill()
         path.fill()
-        NSColor(calibratedWhite: 1.0, alpha: 0.12).setStroke()
+
+        NSColor.separatorColor.withAlphaComponent(0.35).setStroke()
         path.lineWidth = 1
         path.stroke()
 
         let text = displayText.isEmpty ? placeholder : displayText
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 13, weight: .medium),
-            .foregroundColor: NSColor.white
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: NSColor.labelColor
         ]
+
         let size = (text as NSString).size(withAttributes: attributes)
-        let rect = NSRect(
+        let drawRect = NSRect(
             x: bounds.midX - size.width / 2,
             y: bounds.midY - size.height / 2,
             width: size.width,
             height: size.height
         )
-        (text as NSString).draw(in: rect, withAttributes: attributes)
+        (text as NSString).draw(in: drawRect, withAttributes: attributes)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -274,4 +530,9 @@ final class HotKeyRecorderView: NSView {
         let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
         onKeyChange?(event.keyCode, modifiers)
     }
+}
+
+#Preview {
+    SettingsView()
+        .frame(width: 640, height: 520)
 }

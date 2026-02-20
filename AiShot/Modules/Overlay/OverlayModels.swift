@@ -9,9 +9,15 @@ enum ActionMode {
     case editing
     case moving
     case resizing
+    case selecting
+    case selected
+    case dragging
+    case drawing
+    case elementDragging
 }
 
 enum ToolMode {
+    case none
     case move
     case select
     case pen
@@ -36,8 +42,8 @@ struct DrawingElement {
         case line(start: NSPoint, end: NSPoint)
         case arrow(start: NSPoint, end: NSPoint)
         case rectangle(rect: NSRect)
-        case circle(rect: NSRect)
-        case text(text: String, point: NSPoint)
+        case ellipse(rect: NSRect)
+        case text(text: String, rect: NSRect)
     }
     
     let type: ElementType

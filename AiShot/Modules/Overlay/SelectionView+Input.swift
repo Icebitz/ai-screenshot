@@ -344,7 +344,7 @@ extension SelectionView {
     }
     
     override func mouseUp(with event: NSEvent) {
-        let location = convert(event.locationInWindow, from: nil)
+        _ = convert(event.locationInWindow, from: nil)
         if aiIsSelectingEditRect {
             defer {
                 aiIsSelectingEditRect = false

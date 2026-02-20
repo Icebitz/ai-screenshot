@@ -120,6 +120,15 @@ class SelectionView: NSView, NSTextFieldDelegate {
         }
     }
     
+    var isDrawingTool: Bool {
+        switch currentTool {
+        case .pen, .line, .arrow, .rectangle, .ellipse, .text:
+            return true
+        default:
+            return false
+        }
+    }
+    
     
     init(frame: NSRect, screenImage: CGImage, overlayId: UUID) {
         self.screenImage = screenImage
@@ -422,6 +431,8 @@ class SelectionView: NSView, NSTextFieldDelegate {
         case .select:
             return
         case .ai:
+            return
+        case .none:
             return
         }
         
