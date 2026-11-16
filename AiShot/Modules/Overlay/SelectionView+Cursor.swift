@@ -3,33 +3,53 @@ import Cocoa
 extension SelectionView {
     override func resetCursorRects() {
         super.resetCursorRects()
+        if mode == .resizing, let corner = resizingCorner ?? resizingTextAreaCorner {
+            addCursorRect(bounds, cursor: resizeCursor(for: corner))
+            return
+        }
+        if mode == .moving || mode == .elementDragging || mode == .dragging {
+            addCursorRect(bounds, cursor: .closedHand)
+            return
+        }
+        if mode == .selecting || mode == .drawing {
+            addCursorRect(bounds, cursor: .crosshair)
+            return
+        }
         if let rect = selectedRect {
             if isToolMode {
                 addCursorRect(rect, cursor: .crosshair)
-            }
-            if currentTool == .eyedropper {
+            } else if currentTool == .eyedropper {
                 addCursorRect(rect, cursor: eyedropperCursor)
-            }
-            if currentTool == .move {
+            } else if currentTool == .move, activeTextField == nil {
                 addCursorRect(rect, cursor: .openHand)
             }
-        }
-        let pointsToUse = activeTextField != nil ? textControlPoints : controlPoints
-        for (index, rect) in pointsToUse.enumerated() {
-            let cursor: NSCursor
-            switch index {
-            case 0, 3:
-                cursor = resizeNorthEastSouthWestCursor
-            case 1, 2:
-                cursor = resizeNorthWestSouthEastCursor
-            case 4, 5:
-                cursor = .resizeUpDown
-            case 6, 7:
-                cursor = .resizeLeftRight
-            default:
-                cursor = .crosshair
+            if activeTextField == nil, currentTool == .move {
+                addHandleCursorRects(controlPointHitRects(for: rect))
             }
-            addCursorRect(rect.insetBy(dx: -4, dy: -4), cursor: cursor)
+        }
+        if activeTextField != nil, let rect = activeTextRect {
+            let hits = controlPointRects(for: rect, size: 8).map { $0.insetBy(dx: -10, dy: -10) }
+            addHandleCursorRects(hits)
+        }
+    }
+
+    /// Edges first, corners last. Later cursor rects win where they overlap,
+    /// which keeps a single resize cursor stable across each handle.
+    private func addHandleCursorRects(_ hits: [NSRect]) {
+        let order = [4, 5, 6, 7, 0, 1, 2, 3]
+        for index in order where index < hits.count {
+            let hit = hits[index]
+            guard hit.width > 2, hit.height > 2 else { continue }
+            addCursorRect(hit, cursor: resizeCursor(for: index))
+        }
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        switch mode {
+        case .resizing, .moving, .elementDragging, .dragging, .selecting:
+            applyCursor(at: convert(event.locationInWindow, from: nil))
+        default:
+            super.cursorUpdate(with: event)
         }
     }
 
@@ -38,10 +58,85 @@ extension SelectionView {
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
-        let options: NSTrackingArea.Options = [.activeAlways, .mouseMoved, .inVisibleRect]
+        let options: NSTrackingArea.Options = [
+            .activeAlways, .mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .inVisibleRect
+        ]
         let area = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
         addTrackingArea(area)
         trackingArea = area
+    }
+
+    func resizeCursor(for handle: Int) -> NSCursor {
+        switch handle {
+        case 0, 3:
+            return resizeNorthEastSouthWestCursor
+        case 1, 2:
+            return resizeNorthWestSouthEastCursor
+        case 4, 5:
+            return .resizeUpDown
+        case 6, 7:
+            return .resizeLeftRight
+        default:
+            return .arrow
+        }
+    }
+
+    func isPointInPopover(_ location: NSPoint) -> Bool {
+        let popovers: [NSView?] = [colorPickerView, lineWidthPickerView, fontPickerView, aiPromptView]
+        return popovers.contains { $0?.frame.contains(location) == true }
+    }
+
+    func applyCursor(at location: NSPoint) {
+        if mode == .resizing {
+            if let corner = resizingCorner ?? resizingTextAreaCorner {
+                resizeCursor(for: corner).set()
+                return
+            }
+        }
+        if mode == .moving || mode == .elementDragging || mode == .dragging {
+            NSCursor.closedHand.set()
+            return
+        }
+        if mode == .selecting || mode == .drawing || (mode == .creating && startPoint != nil) {
+            NSCursor.crosshair.set()
+            return
+        }
+        if isPointInPopover(location) || pointIsOnToolbarControl(location) {
+            NSCursor.arrow.set()
+            return
+        }
+        if activeTextField != nil, let rect = activeTextRect,
+           let handle = textHandleIndex(at: location, in: rect) {
+            resizeCursor(for: handle).set()
+            return
+        }
+        if activeTextField == nil, currentTool == .move, let rect = selectedRect,
+           let handle = selectionHandleIndex(at: location, in: rect) {
+            resizeCursor(for: handle).set()
+            return
+        }
+        if let toolbar = toolbarView, toolbar.frame.contains(location) {
+            NSCursor.arrow.set()
+            return
+        }
+        if currentTool == .eyedropper, let rect = selectedRect, rect.contains(location) {
+            eyedropperCursor.set()
+            return
+        }
+        if isDrawingTool, let rect = selectedRect, rect.contains(location) {
+            NSCursor.crosshair.set()
+            return
+        }
+        if currentTool == .move, let rect = selectedRect, rect.contains(location) {
+            NSCursor.openHand.set()
+            return
+        }
+        NSCursor.arrow.set()
+    }
+
+    func applyCursorAtCurrentMouse() {
+        guard let window else { return }
+        applyCursor(at: convert(window.mouseLocationOutsideOfEventStream, from: nil))
     }
 
     func makeEyedropperCursor() -> NSCursor {

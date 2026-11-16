@@ -91,14 +91,17 @@ extension SelectionView {
         aiPromptView = promptView
         addSubview(promptView)
         updateSendState()
+        refreshToolbarHover(animated: false)
     }
 
     func hideAIPrompt() {
+        guard aiPromptView != nil else { return }
         aiPromptView?.removeFromSuperview()
         aiPromptView = nil
         aiPromptField = nil
         aiSendButton = nil
         aiSendSpinner = nil
+        refreshToolbarHover()
     }
 
     private func aiPromptWidth(for rect: NSRect) -> CGFloat {

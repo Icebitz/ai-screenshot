@@ -17,6 +17,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
     var controlPoints: [NSRect] = []
     var dragOffset: NSPoint = .zero
     var resizingCorner: Int? = nil
+    var resizeGrabOffset: CGPoint = .zero
     var lastDragPoint: NSPoint?
     
     // Drawing
@@ -93,6 +94,10 @@ class SelectionView: NSView, NSTextFieldDelegate {
     let toolButtonWidth: CGFloat = 32
     let actionButtonWidth: CGFloat = 32
     let toolbarPadding: CGFloat = 10
+    let toolbarRestingAlpha: CGFloat = 0.38
+    var isToolbarHovered = false
+    var sizeLabelFrame: NSRect = .zero
+    var isSizeLabelHovered = false
     let buttonSpacing: CGFloat = 8
     let intraGroupSpacing: CGFloat = 0
     let separatorWidth: CGFloat = 1
@@ -167,13 +172,17 @@ class SelectionView: NSView, NSTextFieldDelegate {
         } else {
             location = superview != nil ? convert(point, from: superview) : point
         }
-        if activeTextField != nil, !textControlPoints.isEmpty {
-            let hitAreaExpansion: CGFloat = 8
-            for controlPoint in textControlPoints {
-                if controlPoint.insetBy(dx: -hitAreaExpansion, dy: -hitAreaExpansion).contains(location) {
-                    return self
-                }
-            }
+        if activeTextField != nil, let textRect = activeTextRect,
+           textHandleIndex(at: location, in: textRect) != nil {
+            return self
+        }
+        if activeTextField == nil,
+           currentTool == .move,
+           let rect = selectedRect,
+           selectionHandleIndex(at: location, in: rect) != nil,
+           !pointIsOnToolbarControl(location),
+           !isPointInPopover(location) {
+            return self
         }
         return super.hitTest(point)
     }
@@ -189,7 +198,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         
         drawFullScreenImage(in: context)
-        drawDimOverlay(in: context)
+        drawDimOverlay(in: context, excluding: liveSelectionRect())
         
         // Draw selection rectangle
         if let start = startPoint, let current = currentPoint, (mode == .creating || mode == .selecting), selectedRect == nil {
@@ -439,102 +448,98 @@ class SelectionView: NSView, NSTextFieldDelegate {
         drawingElements.append(element)
     }
     
-    func handleResize(corner: Int, to point: NSPoint) {
-        guard var rect = selectedRect else { return }
-        let minSize: CGFloat = 50
-        
-        switch corner {
-        case 0: // Bottom-left
-            rect.size.width = rect.maxX - point.x
-            rect.size.height = rect.maxY - point.y
-            rect.origin.x = point.x
-            rect.origin.y = point.y
-        case 1: // Bottom-right
-            rect.size.width = point.x - rect.minX
-            rect.size.height = rect.maxY - point.y
-            rect.origin.y = point.y
-        case 2: // Top-left
-            rect.size.width = rect.maxX - point.x
-            rect.size.height = point.y - rect.minY
-            rect.origin.x = point.x
-        case 3: // Top-right
-            rect.size.width = point.x - rect.minX
-            rect.size.height = point.y - rect.minY
-        case 4: // Bottom-mid
-            rect.size.height = rect.maxY - point.y
-            rect.origin.y = point.y
-        case 5: // Top-mid
-            rect.size.height = point.y - rect.minY
-        case 6: // Left-mid
-            rect.size.width = rect.maxX - point.x
-            rect.origin.x = point.x
-        case 7: // Right-mid
-            rect.size.width = point.x - rect.minX
-        default:
-            break
+    func liveSelectionRect() -> NSRect? {
+        if let start = startPoint, let current = currentPoint,
+           (mode == .creating || mode == .selecting), selectedRect == nil {
+            let rect = normalizedRect(from: start, to: current)
+            return (rect.width > 0 && rect.height > 0) ? rect : nil
         }
-        
-        rect = rect.intersection(bounds)
+        return selectedRect
+    }
 
-        // Ensure minimum size
-        if rect.width > minSize && rect.height > minSize {
-            selectedRect = rect
-            updateControlPoints()
-        }
+    func handleResize(corner: Int, to point: NSPoint) {
+        guard let original = selectedRect else { return }
+        let minSize: CGFloat = 16
+        let movesMinX = corner == 0 || corner == 2 || corner == 6
+        let movesMaxX = corner == 1 || corner == 3 || corner == 7
+        let movesMinY = corner == 0 || corner == 1 || corner == 4
+        let movesMaxY = corner == 2 || corner == 3 || corner == 5
+
+        var minX = original.minX
+        var minY = original.minY
+        var maxX = original.maxX
+        var maxY = original.maxY
+
+        if movesMinX { minX = min(point.x, original.maxX - minSize) }
+        if movesMaxX { maxX = max(point.x, original.minX + minSize) }
+        if movesMinY { minY = min(point.y, original.maxY - minSize) }
+        if movesMaxY { maxY = max(point.y, original.minY + minSize) }
+
+        minX = max(bounds.minX, minX)
+        maxX = min(bounds.maxX, maxX)
+        minY = max(bounds.minY, minY)
+        maxY = min(bounds.maxY, maxY)
+
+        if movesMinX, maxX - minX < minSize { minX = max(bounds.minX, maxX - minSize) }
+        if movesMaxX, maxX - minX < minSize { maxX = min(bounds.maxX, minX + minSize) }
+        if movesMinY, maxY - minY < minSize { minY = max(bounds.minY, maxY - minSize) }
+        if movesMaxY, maxY - minY < minSize { maxY = min(bounds.maxY, minY + minSize) }
+
+        let width = maxX - minX
+        let height = maxY - minY
+        guard width >= 1, height >= 1 else { return }
+        selectedRect = NSRect(x: minX, y: minY, width: width, height: height)
+        updateControlPoints()
     }
     
     func updateControlPoints() {
         guard let rect = selectedRect else { return }
         controlPoints = controlPointRects(for: rect)
-        window?.invalidateCursorRects(for: self)
+        if mode != .resizing && mode != .moving && mode != .elementDragging {
+            window?.invalidateCursorRects(for: self)
+        }
     }
 
     func updateTextControlPoints() {
         guard let rect = activeTextRect else { return }
         textControlPoints = controlPointRects(for: rect, size: 8)
-        window?.invalidateCursorRects(for: self)
+        if mode != .resizing {
+            window?.invalidateCursorRects(for: self)
+        }
     }
 
     func handleTextAreaResize(corner: Int, to point: NSPoint, rect: inout NSRect) {
-        let clipRect = selectedRect ?? bounds
-        let clampedPoint = NSPoint(
-            x: min(max(clipRect.minX, point.x), clipRect.maxX),
-            y: min(max(clipRect.minY, point.y), clipRect.maxY)
+        let clip = selectedRect ?? bounds
+        let p = NSPoint(
+            x: min(max(clip.minX, point.x), clip.maxX),
+            y: min(max(clip.minY, point.y), clip.maxY)
         )
-        switch corner {
-        case 0: // Bottom-left
-            rect.size.width = rect.maxX - clampedPoint.x
-            rect.size.height = rect.maxY - clampedPoint.y
-            rect.origin.x = clampedPoint.x
-            rect.origin.y = clampedPoint.y
-        case 1: // Bottom-right
-            rect.size.width = clampedPoint.x - rect.minX
-            rect.size.height = rect.maxY - clampedPoint.y
-            rect.origin.y = clampedPoint.y
-        case 2: // Top-left
-            rect.size.width = rect.maxX - clampedPoint.x
-            rect.size.height = clampedPoint.y - rect.minY
-            rect.origin.x = clampedPoint.x
-        case 3: // Top-right
-            rect.size.width = clampedPoint.x - rect.minX
-            rect.size.height = clampedPoint.y - rect.minY
-        case 4: // Bottom-mid
-            rect.size.height = rect.maxY - clampedPoint.y
-            rect.origin.y = clampedPoint.y
-        case 5: // Top-mid
-            rect.size.height = clampedPoint.y - rect.minY
-        case 6: // Left-mid
-            rect.size.width = rect.maxX - clampedPoint.x
-            rect.origin.x = clampedPoint.x
-        case 7: // Right-mid
-            rect.size.width = clampedPoint.x - rect.minX
-        default:
-            break
-        }
-        rect = rect.intersection(clipRect)
-        if rect.width < textAreaMinWidth { rect.size.width = textAreaMinWidth }
-        if rect.height < textAreaMinHeight { rect.size.height = textAreaMinHeight }
-        rect = rect.intersection(clipRect)
+        let minW = min(textAreaMinWidth, max(clip.width, 1))
+        let minH = min(textAreaMinHeight, max(clip.height, 1))
+        let movesMinX = corner == 0 || corner == 2 || corner == 6
+        let movesMaxX = corner == 1 || corner == 3 || corner == 7
+        let movesMinY = corner == 0 || corner == 1 || corner == 4
+        let movesMaxY = corner == 2 || corner == 3 || corner == 5
+
+        var minX = rect.minX
+        var minY = rect.minY
+        var maxX = rect.maxX
+        var maxY = rect.maxY
+        if movesMinX { minX = min(p.x, maxX - minW) }
+        if movesMaxX { maxX = max(p.x, minX + minW) }
+        if movesMinY { minY = min(p.y, maxY - minH) }
+        if movesMaxY { maxY = max(p.y, minY + minH) }
+
+        minX = max(clip.minX, minX)
+        maxX = min(clip.maxX, maxX)
+        minY = max(clip.minY, minY)
+        maxY = min(clip.maxY, maxY)
+        if movesMinX, maxX - minX < minW { minX = max(clip.minX, maxX - minW) }
+        if movesMaxX, maxX - minX < minW { maxX = min(clip.maxX, minX + minW) }
+        if movesMinY, maxY - minY < minH { minY = max(clip.minY, maxY - minH) }
+        if movesMaxY, maxY - minY < minH { maxY = min(clip.maxY, minY + minH) }
+
+        rect = NSRect(x: minX, y: minY, width: max(1, maxX - minX), height: max(1, maxY - minY))
     }
 
     func updateToolButtonStates() {
@@ -614,6 +619,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         hideAIPrompt()
         toolbarView?.removeFromSuperview()
         toolbarView = nil
+        isToolbarHovered = false
     }
 
     /// Returns average luminance (0–1) of the captured image in the view rect. Lower = darker.
@@ -787,51 +793,66 @@ class SelectionView: NSView, NSTextFieldDelegate {
         return NSFont.systemFont(ofSize: targetSize, weight: .semibold)
     }
 
+    func defaultTextRect(at point: NSPoint, in container: NSRect) -> NSRect {
+        let width = min(textAreaDefaultWidth, max(container.width, 1))
+        let height = min(textAreaDefaultHeight, max(container.height, 1))
+        var origin = NSPoint(x: point.x, y: point.y - height)
+        if origin.x + width > container.maxX { origin.x = container.maxX - width }
+        if origin.y < container.minY { origin.y = container.minY }
+        if origin.x < container.minX { origin.x = container.minX }
+        if origin.y + height > container.maxY { origin.y = container.maxY - height }
+        return NSRect(x: origin.x, y: origin.y, width: width, height: height)
+    }
+
     func startTextEntry(at point: NSPoint) {
-        let sel = selectedRect ?? bounds
-        var rect = NSRect(x: point.x, y: point.y - textAreaDefaultHeight, width: textAreaDefaultWidth, height: textAreaDefaultHeight)
-        rect = rect.intersection(sel)
-        if rect.width < textAreaMinWidth { rect.size.width = textAreaMinWidth }
-        if rect.height < textAreaMinHeight { rect.size.height = textAreaMinHeight }
-        rect = rect.intersection(sel)
-        startTextEntry(in: rect)
+        let container = selectedRect ?? bounds
+        startTextEntry(in: defaultTextRect(at: point, in: container))
     }
 
     func startTextEntry(in rect: NSRect) {
         activeTextField?.removeFromSuperview()
         activeTextField = nil
 
-        let clipRect = rect.intersection(selectedRect ?? bounds)
+        let container = selectedRect ?? bounds
+        let clipRect = rect.intersection(container)
+        guard clipRect.width >= 8, clipRect.height >= 8 else { return }
         let field = NSTextField(frame: clipRect)
         field.delegate = self
+        field.isEditable = true
+        field.isSelectable = true
         field.isBordered = false
         field.isBezeled = false
-        field.drawsBackground = false
+        field.drawsBackground = true
+        field.backgroundColor = NSColor.black.withAlphaComponent(0.28)
         field.focusRingType = .none
+        field.maximumNumberOfLines = 0
+        field.lineBreakMode = .byWordWrapping
         let font = currentTextFont()
-        let placeholderColor: NSColor
-        if let luminance = averageLuminanceInViewRect(clipRect) {
-            placeholderColor = luminance < 0.5 ? .white : .black
-        } else {
-            placeholderColor = .gray
-        }
+        let placeholderColor = NSColor.white.withAlphaComponent(0.55)
         (field.cell as? NSTextFieldCell)?.placeholderAttributedString = NSAttributedString(
             string: "Type text here",
             attributes: [.foregroundColor: placeholderColor, .font: font]
         )
         field.textColor = currentStrokeColor
         field.font = font
-        field.cell?.lineBreakMode = .byWordWrapping
-        field.cell?.truncatesLastVisibleLine = false
-        field.cell?.usesSingleLineMode = false
-        field.wantsLayer = true
-        field.layer?.masksToBounds = true
+        field.alignment = .left
+        if let cell = field.cell as? NSTextFieldCell {
+            cell.wraps = true
+            cell.isScrollable = false
+            cell.usesSingleLineMode = false
+            cell.lineBreakMode = .byWordWrapping
+            cell.truncatesLastVisibleLine = false
+        }
         addSubview(field)
+        window?.makeKey()
         window?.makeFirstResponder(field)
         activeTextField = field
         activeTextRect = clipRect
+        textAreaDragStart = nil
+        textAreaDragCurrent = nil
         mode = .editing
         updateTextControlPoints()
+        needsDisplay = true
     }
 
     func startTextEdit(for element: DrawingElement, at index: Int) {
@@ -865,8 +886,7 @@ class SelectionView: NSView, NSTextFieldDelegate {
         // finish when we're about to resize via control points.
         if activeTextField != nil, let rect = activeTextRect, let window {
             let loc = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-            let expanded = controlPointRects(for: rect, size: 8).map { $0.insetBy(dx: -8, dy: -8) }
-            if expanded.contains(where: { $0.contains(loc) }) {
+            if textHandleIndex(at: loc, in: rect) != nil {
                 isDeferringTextFinishForResize = true
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
@@ -947,6 +967,9 @@ class SelectionView: NSView, NSTextFieldDelegate {
         editingTextElementIndex = nil
         editingTextOriginalElement = nil
         clearToolbar()
+        sizeLabelFrame = .zero
+        isSizeLabelHovered = false
+        window?.invalidateCursorRects(for: self)
         needsDisplay = true
     }
 }

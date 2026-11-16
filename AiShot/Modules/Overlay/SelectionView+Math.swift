@@ -56,6 +56,104 @@ extension SelectionView {
         ]
     }
 
+    /// Grab zones for the eight handles. Corners stay out of the edge bands so the
+    /// pointer does not flip between diagonal and edge cursors on one handle.
+    /// Top and bottom bands are much taller than the drawn grip.
+    /// Index order matches `controlPointRects`.
+    func controlPointHitRects(for rect: NSRect) -> [NSRect] {
+        let cornerSize: CGFloat = 28
+        let verticalReach: CGFloat = 32
+        let horizontalReach: CGFloat = 22
+        let innerV = min(verticalReach, max(0, rect.height / 2 - 10))
+        let innerH = min(horizontalReach, max(0, rect.width / 2 - 10))
+        let edgeWidth = max(0, rect.width - cornerSize)
+        let edgeHeight = max(0, rect.height - cornerSize)
+        let inset = cornerSize / 2
+
+        func corner(_ x: CGFloat, _ y: CGFloat) -> NSRect {
+            NSRect(x: x - cornerSize / 2, y: y - cornerSize / 2, width: cornerSize, height: cornerSize)
+        }
+
+        let bottom = NSRect(
+            x: rect.minX + inset,
+            y: rect.minY - verticalReach,
+            width: edgeWidth,
+            height: innerV + verticalReach
+        )
+        let top = NSRect(
+            x: rect.minX + inset,
+            y: rect.maxY - innerV,
+            width: edgeWidth,
+            height: innerV + verticalReach
+        )
+        let left = NSRect(
+            x: rect.minX - horizontalReach,
+            y: rect.minY + inset,
+            width: innerH + horizontalReach,
+            height: edgeHeight
+        )
+        let right = NSRect(
+            x: rect.maxX - innerH,
+            y: rect.minY + inset,
+            width: innerH + horizontalReach,
+            height: edgeHeight
+        )
+        return [
+            corner(rect.minX, rect.minY),
+            corner(rect.maxX, rect.minY),
+            corner(rect.minX, rect.maxY),
+            corner(rect.maxX, rect.maxY),
+            bottom,
+            top,
+            left,
+            right
+        ]
+    }
+
+    /// Distance from the pointer to the edge it grabbed, so a large hit zone
+    /// does not jump the selection onto the cursor on the first drag.
+    func grabOffsetForResize(corner: Int, at point: NSPoint, in rect: NSRect) -> CGPoint {
+        switch corner {
+        case 0:
+            return CGPoint(x: point.x - rect.minX, y: point.y - rect.minY)
+        case 1:
+            return CGPoint(x: point.x - rect.maxX, y: point.y - rect.minY)
+        case 2:
+            return CGPoint(x: point.x - rect.minX, y: point.y - rect.maxY)
+        case 3:
+            return CGPoint(x: point.x - rect.maxX, y: point.y - rect.maxY)
+        case 4:
+            return CGPoint(x: 0, y: point.y - rect.minY)
+        case 5:
+            return CGPoint(x: 0, y: point.y - rect.maxY)
+        case 6:
+            return CGPoint(x: point.x - rect.minX, y: 0)
+        case 7:
+            return CGPoint(x: point.x - rect.maxX, y: 0)
+        default:
+            return .zero
+        }
+    }
+
+    func selectionHandleIndex(at point: NSPoint, in rect: NSRect) -> Int? {
+        let hits = controlPointHitRects(for: rect)
+        for index in 0..<min(4, hits.count) where hits[index].contains(point) {
+            return index
+        }
+        for index in 4..<hits.count where hits[index].width > 2 && hits[index].height > 2 && hits[index].contains(point) {
+            return index
+        }
+        return nil
+    }
+
+    func textHandleIndex(at point: NSPoint, in rect: NSRect) -> Int? {
+        let hits = controlPointRects(for: rect, size: 8).map { $0.insetBy(dx: -10, dy: -10) }
+        for (index, hit) in hits.enumerated() where hit.contains(point) {
+            return index
+        }
+        return nil
+    }
+
     func polylineHitTest(points: [NSPoint], point: NSPoint, tolerance: CGFloat) -> Bool {
         guard points.count > 1 else { return false }
         for idx in 0..<(points.count - 1) {

@@ -4,10 +4,8 @@ extension SelectionView {
     func setupToolbar(for rect: NSRect) {
         clearToolbar()
 
-        // Place toolbar centered on the bottom edge of the selection
         let toolbarHeight: CGFloat = 48
-        var toolbarY = rect.minY - toolbarHeight / 2
-        toolbarY = min(max(4, toolbarY), bounds.maxY - toolbarHeight - 4)
+        let toolbarY = toolbarFrameY(for: rect, height: toolbarHeight)
 
         let toolbarFrame = toolbarFrameForSelection(rect, y: toolbarY)
         let toolbar = NSVisualEffectView(frame: toolbarFrame)
@@ -23,6 +21,8 @@ extension SelectionView {
         toolbar.layer?.shadowOpacity = 0.35
         toolbar.layer?.shadowRadius = 8
         toolbar.layer?.shadowOffset = CGSize(width: 0, height: -2)
+        toolbar.alphaValue = toolbarRestingAlpha
+        isToolbarHovered = false
         toolbarView = toolbar
         addSubview(toolbar)
         
@@ -122,14 +122,14 @@ extension SelectionView {
         toolbar.addSubview(fontButton)
 
         updateGroupBorders()
+        refreshToolbarHover(animated: false)
     }
 
     func updateToolbar() {
         guard let rect = selectedRect else { return }
         
         let toolbarHeight: CGFloat = 48
-        var toolbarY = rect.minY - toolbarHeight / 2
-        toolbarY = min(max(4, toolbarY), bounds.maxY - toolbarHeight - 4)
+        let toolbarY = toolbarFrameY(for: rect, height: toolbarHeight)
 
         let toolbarFrame = toolbarFrameForSelection(rect, y: toolbarY)
         toolbarView?.frame = toolbarFrame
@@ -170,6 +170,82 @@ extension SelectionView {
         updateFontPickerPosition()
         updateFontButtonState()
         updateAIPromptVisibility()
+        refreshToolbarHover(animated: false)
+    }
+
+    func toolbarFrameY(for rect: NSRect, height: CGFloat) -> CGFloat {
+        let gap: CGFloat = 8
+        let below = rect.minY - height - gap
+        if below >= 4 {
+            return below
+        }
+        let above = rect.maxY + gap
+        if above + height <= bounds.maxY - 4 {
+            return above
+        }
+        let clearance: CGFloat = 12
+        let lowerBound = rect.minY + clearance
+        let upperBound = rect.maxY - height - clearance
+        if upperBound >= lowerBound {
+            return min(max(rect.midY - height / 2, lowerBound), upperBound)
+        }
+        return min(max(4, rect.minY + gap), bounds.maxY - height - 4)
+    }
+
+    func pointIsOnToolbarControl(_ location: NSPoint) -> Bool {
+        guard let toolbar = toolbarView, toolbar.frame.contains(location) else { return false }
+        let local = toolbar.convert(location, from: self)
+        guard let hit = toolbar.hitTest(local) else { return false }
+        if hit is NSControl { return true }
+        var view: NSView? = hit
+        while let current = view, current !== toolbar {
+            if current is NSControl { return true }
+            view = current.superview
+        }
+        return false
+    }
+
+    func updateToolbarHover(at location: NSPoint?, animated: Bool) {
+        updateSizeLabelHover(at: location)
+        let popoverOpen = colorPickerView != nil || lineWidthPickerView != nil || fontPickerView != nil
+        var hovered = popoverOpen
+        if let location {
+            if let toolbar = toolbarView, toolbar.frame.insetBy(dx: -4, dy: -4).contains(location) {
+                hovered = true
+            }
+            if let prompt = aiPromptView, prompt.frame.contains(location) {
+                hovered = true
+            }
+        }
+        setToolbarHovered(hovered, animated: animated)
+    }
+
+    func refreshToolbarHover(animated: Bool = true) {
+        guard let window else {
+            updateToolbarHover(at: nil, animated: animated)
+            return
+        }
+        let location = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        updateToolbarHover(at: location, animated: animated)
+    }
+
+    func setToolbarHovered(_ hovered: Bool, animated: Bool) {
+        guard let toolbar = toolbarView else {
+            isToolbarHovered = false
+            return
+        }
+        guard hovered != isToolbarHovered else { return }
+        isToolbarHovered = hovered
+        let alpha: CGFloat = hovered ? 1 : toolbarRestingAlpha
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.14
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                toolbar.animator().alphaValue = alpha
+            }
+        } else {
+            toolbar.alphaValue = alpha
+        }
     }
 
     private func createToolButton(icon: String, tool: ToolMode, x: CGFloat, y: CGFloat) -> ToolbarButton {
@@ -258,7 +334,7 @@ extension SelectionView {
         }
         currentTool = nextTool
         updateToolButtonStates()
-        window?.invalidateCursorRects(for: self)
+        applyCursorAtCurrentMouse()
         needsDisplay = true
     }
 

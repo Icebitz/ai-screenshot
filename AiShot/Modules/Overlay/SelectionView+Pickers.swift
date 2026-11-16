@@ -70,11 +70,14 @@ extension SelectionView {
 
         addSubview(picker)
         colorPickerView = picker
+        refreshToolbarHover(animated: false)
     }
 
     func hideColorPicker() {
+        guard colorPickerView != nil else { return }
         colorPickerView?.removeFromSuperview()
         colorPickerView = nil
+        refreshToolbarHover()
     }
 
     @objc func toggleLineWidthPicker() {
@@ -130,11 +133,14 @@ extension SelectionView {
 
         addSubview(picker)
         lineWidthPickerView = picker
+        refreshToolbarHover(animated: false)
     }
 
     func hideLineWidthPicker() {
+        guard lineWidthPickerView != nil else { return }
         lineWidthPickerView?.removeFromSuperview()
         lineWidthPickerView = nil
+        refreshToolbarHover()
     }
 
     func updateLineWidthPickerPosition() {
@@ -212,11 +218,14 @@ extension SelectionView {
 
         addSubview(picker)
         fontPickerView = picker
+        refreshToolbarHover(animated: false)
     }
 
     func hideFontPicker() {
+        guard fontPickerView != nil else { return }
         fontPickerView?.removeFromSuperview()
         fontPickerView = nil
+        refreshToolbarHover()
     }
 
     func updateFontPickerPosition() {

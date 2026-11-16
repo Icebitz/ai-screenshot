@@ -2,19 +2,15 @@ import Cocoa
 
 extension SelectionView {
     func drawSelectionArea(_ rect: NSRect, in context: CGContext) {
+        context.saveGState()
         context.setBlendMode(.normal)
-        let imageRect = imageRectForViewRect(rect)
-        
-        // Draw the screen image in the selection area
         if let aiResultImage {
             context.draw(aiResultImage, in: rect)
-        } else if let croppedImage = screenImage.cropping(to: imageRect) {
-            context.draw(croppedImage, in: rect)
         }
-        // Draw selection border
         context.setStrokeColor(NSColor.systemBlue.cgColor)
         context.setLineWidth(1)
         context.stroke(rect)
+        context.restoreGState()
     }
 
     func drawAIEditRect(_ rect: NSRect, in context: CGContext) {
@@ -41,9 +37,46 @@ extension SelectionView {
         context.draw(screenImage, in: bounds)
     }
 
-    func drawDimOverlay(in context: CGContext) {
+    func drawDimOverlay(in context: CGContext, excluding hole: NSRect? = nil) {
+        context.saveGState()
         context.setFillColor(NSColor.black.withAlphaComponent(0.35).cgColor)
-        context.fill(bounds)
+        guard let hole else {
+            context.fill(bounds)
+            context.restoreGState()
+            return
+        }
+        let clipped = hole.intersection(bounds)
+        guard clipped.width > 0.5, clipped.height > 0.5 else {
+            context.fill(bounds)
+            context.restoreGState()
+            return
+        }
+        // Shade only the area outside the selection. The bright region is the
+        // original screenshot, so the crop stays locked to the screen while dragging
+        // instead of being re-sampled from a pixel-snapped crop.
+        var regions: [CGRect] = []
+        let topHeight = bounds.maxY - clipped.maxY
+        if topHeight > 0 {
+            regions.append(CGRect(x: bounds.minX, y: clipped.maxY, width: bounds.width, height: topHeight))
+        }
+        let bottomHeight = clipped.minY - bounds.minY
+        if bottomHeight > 0 {
+            regions.append(CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: bottomHeight))
+        }
+        let leftWidth = clipped.minX - bounds.minX
+        if leftWidth > 0 {
+            regions.append(CGRect(x: bounds.minX, y: clipped.minY, width: leftWidth, height: clipped.height))
+        }
+        let rightWidth = bounds.maxX - clipped.maxX
+        if rightWidth > 0 {
+            regions.append(CGRect(x: clipped.maxX, y: clipped.minY, width: rightWidth, height: clipped.height))
+        }
+        if regions.isEmpty {
+            context.restoreGState()
+            return
+        }
+        context.fill(regions)
+        context.restoreGState()
     }
     
     func drawSizeLabel(for rect: NSRect, in context: CGContext) {
@@ -52,43 +85,28 @@ extension SelectionView {
         let text = "\(width) × \(height)"
         
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 15, weight: .semibold),
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
             .foregroundColor: NSColor.white
         ]
         
         let attributedString = NSAttributedString(string: text, attributes: attributes)
         let textSize = attributedString.size()
         
-        let paddingX: CGFloat = 12
-        let paddingY: CGFloat = 6
+        let paddingX: CGFloat = 8
+        let paddingY: CGFloat = 3
         let bubbleSize = NSSize(width: textSize.width + paddingX * 2, height: textSize.height + paddingY * 2)
+        let bubbleRect = sizeLabelRect(for: rect, bubbleSize: bubbleSize)
+        sizeLabelFrame = bubbleRect
 
-        var bubbleOrigin = NSPoint(
-            x: rect.midX - bubbleSize.width / 2,
-            y: rect.maxY - bubbleSize.height / 2
-        )
-        
-        if bubbleOrigin.y + bubbleSize.height > bounds.maxY - 4 {
-            bubbleOrigin.y = bounds.maxY - bubbleSize.height - 4
-        }
-        if bubbleOrigin.y < 4 {
-            bubbleOrigin.y = 4
-        }
-
-        if bubbleOrigin.x < 4 { bubbleOrigin.x = 4 }
-        if bubbleOrigin.x + bubbleSize.width > bounds.maxX - 4 {
-            bubbleOrigin.x = bounds.maxX - bubbleSize.width - 4
-        }
-
-        let bubbleRect = NSRect(origin: bubbleOrigin, size: bubbleSize)
-        let bubblePath = NSBezierPath(roundedRect: bubbleRect, xRadius: 6, yRadius: 6)
+        let bubblePath = NSBezierPath(roundedRect: bubbleRect, xRadius: 5, yRadius: 5)
+        let alpha: CGFloat = isSizeLabelHovered ? 1 : toolbarRestingAlpha
 
         context.saveGState()
+        context.setAlpha(alpha)
         context.setShadow(offset: .zero, blur: 6, color: NSColor.black.withAlphaComponent(0.35).cgColor)
         context.setFillColor(NSColor(calibratedWhite: 0.08, alpha: 0.85).cgColor)
         context.addPath(bubblePath.cgPath)
         context.fillPath()
-        context.restoreGState()
 
         let textRect = NSRect(
             x: bubbleRect.minX + paddingX,
@@ -96,8 +114,30 @@ extension SelectionView {
             width: textSize.width,
             height: textSize.height
         )
-
         attributedString.draw(in: textRect)
+        context.restoreGState()
+    }
+
+    func sizeLabelRect(for selection: NSRect, bubbleSize: NSSize) -> NSRect {
+        let margin: CGFloat = 4
+        var rect = NSRect(
+            x: selection.midX - bubbleSize.width / 2,
+            y: selection.midY - bubbleSize.height / 2,
+            width: bubbleSize.width,
+            height: bubbleSize.height
+        )
+        if rect.minX < margin { rect.origin.x = margin }
+        if rect.maxX > bounds.maxX - margin { rect.origin.x = bounds.maxX - margin - rect.width }
+        if rect.minY < margin { rect.origin.y = margin }
+        if rect.maxY > bounds.maxY - margin { rect.origin.y = bounds.maxY - margin - rect.height }
+        return rect
+    }
+
+    func updateSizeLabelHover(at location: NSPoint?) {
+        let hovered = location.map { sizeLabelFrame.width > 1 && sizeLabelFrame.contains($0) } ?? false
+        guard hovered != isSizeLabelHovered else { return }
+        isSizeLabelHovered = hovered
+        needsDisplay = true
     }
     
     func drawElement(_ element: DrawingElement, in context: CGContext) {
@@ -371,12 +411,13 @@ extension SelectionView {
         let strokeColor = NSColor(calibratedRed: 0.18, green: 0.35, blue: 0.55, alpha: 1.0)
         let glowColor = NSColor(calibratedRed: 0.45, green: 0.86, blue: 1.0, alpha: 0.7)
 
-        for pointRect in points {
-            let handleRect = pointRect.insetBy(dx: -1, dy: -1)
-            let path = NSBezierPath(roundedRect: handleRect, xRadius: 2, yRadius: 2)
+        for (index, pointRect) in points.enumerated() {
+            let handleRect = controlHandleDisplayRect(index: index, pointRect: pointRect, selection: rect, size: size)
+            let radius = min(handleRect.width, handleRect.height) / 2
+            let path = NSBezierPath(roundedRect: handleRect, xRadius: radius, yRadius: radius)
 
             context.saveGState()
-            context.setShadow(offset: .zero, blur: 6, color: glowColor.cgColor)
+            context.setShadow(offset: .zero, blur: 4, color: glowColor.cgColor)
             context.setFillColor(fillColor.cgColor)
             context.addPath(path.cgPath)
             context.fillPath()
@@ -386,6 +427,28 @@ extension SelectionView {
             context.setLineWidth(1)
             context.addPath(path.cgPath)
             context.strokePath()
+        }
+    }
+
+    private func controlHandleDisplayRect(index: Int, pointRect: NSRect, selection: NSRect, size: CGFloat) -> NSRect {
+        guard size >= 12 else {
+            return pointRect.insetBy(dx: -1, dy: -1)
+        }
+        switch index {
+        case 4, 5:
+            let gripWidth = min(60, max(32, selection.width * 0.24))
+            let gripHeight: CGFloat = 12
+            return NSRect(
+                x: pointRect.midX - gripWidth / 2,
+                y: pointRect.midY - gripHeight / 2,
+                width: gripWidth,
+                height: gripHeight
+            )
+        case 6, 7:
+            let gripHeight = min(48, max(28, selection.height * 0.2))
+            return NSRect(x: pointRect.midX - 5, y: pointRect.midY - gripHeight / 2, width: 10, height: gripHeight)
+        default:
+            return pointRect.insetBy(dx: -1, dy: -1)
         }
     }
 
